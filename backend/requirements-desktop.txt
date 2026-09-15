@@ -1,12 +1,14 @@
-# Windows desktop app (desktop/app.py, opened by desktop/JobWatcher.exe).
-# Installed into backend/.venv by scripts/desktop.bat.
+# Desktop app (desktop/app.py). Installed into backend/.venv by
+# scripts/desktop.bat on Windows and scripts/desktop.sh on macOS/Linux.
+# pywebview and pystray pull the Windows (pythonnet) or macOS (pyobjc) backend
+# automatically from the platform markers, so this one file serves every OS.
 -r requirements.txt
 
-# Pure Python threaded WSGI server: serves the API and the SPA on Windows.
+# Pure Python threaded WSGI server: serves the API and the SPA locally.
 waitress==3.0.2
-# Native window on top of Edge WebView2; pulls pythonnet.
+# Native window on top of Edge WebView2 (Windows) or WKWebView (macOS).
 pywebview==6.2.1
-# Notification area icon that keeps the monitor alive with the window closed.
+# Tray / menu-bar icon that keeps the monitor alive with the window closed.
 pystray==0.19.5
-# Draws the app icon for the tray and the .ico file.
+# Draws the app icon for the tray and the .ico/.icns files.
 pillow==12.3.0
