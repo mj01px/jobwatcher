@@ -17,6 +17,7 @@
   <img src="https://img.shields.io/badge/Vite-7-646CFF?style=flat-square&logo=vite&logoColor=white"/>
   <img src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white"/>
   <img src="https://img.shields.io/badge/Windows-desktop-0078D4?style=flat-square&logo=windows&logoColor=white"/>
+  <img src="https://img.shields.io/badge/macOS-desktop-000000?style=flat-square&logo=apple&logoColor=white"/>
 </p>
 
 </div>
@@ -29,10 +30,10 @@
 
 ```ts
 const jobWatcher = {
-  type:        "Windows desktop app",
+  type:        "Cross-platform desktop app (Windows · macOS)",
   backend:     ["Python 3.13", "Django 5.2", "Django REST Framework", "SQLite", "APScheduler", "pytest"],
   frontend:    ["React 19", "TypeScript", "Vite", "TanStack Query", "React Router", "Vitest"],
-  desktop:     ["waitress", "pywebview (WebView2)", "pystray", "C# launcher"],
+  desktop:     ["waitress", "pywebview (WebView2 · WKWebView)", "pystray", "C# launcher · .app bundle"],
   features:    ["Scheduled job checks", "Profile scoring", "Applications list", "AI cover letters", "Application detection", "Tray notifications"],
   sources:     "Brazil-first · InHire · Gupy · GitHub Issues",
   author:      "Mauro Junior · github.com/mj01px",
@@ -44,16 +45,18 @@ own profile, and keeps track of each application until an answer comes. It solve
 two chores of a job hunt that eat the most time: **opening dozens of career pages every
 day** and **remembering who never answered**.
 
-It runs as a Windows app that lives in the notification area. Four times a day it checks
-74 InHire career pages, 38 Gupy searches and 4 GitHub vacancy repositories, highlights what
-matches your stack, and tells you when something new is worth a look.
+It runs as a desktop app that lives in the tray (notification area on Windows, menu bar
+on macOS). Four times a day it checks 74 InHire career pages, 38 Gupy searches and 4 GitHub
+vacancy repositories, highlights what matches your stack, and tells you when something new
+is worth a look.
 
 ```
 jobwatcher/
 ├── backend/     # Django REST API + check worker   →  http://127.0.0.1:8000
 ├── frontend/    # React + Vite SPA                  →  http://localhost:5173
 ├── desktop/     # Tray app: API, worker and window in one process
-└── scripts/     # desktop.bat builds JobWatcher.exe and the shortcuts
+│                #   platform_support.py isolates the Windows/macOS/Linux specifics
+└── scripts/     # desktop.bat → JobWatcher.exe (Windows) · desktop.sh → JobWatcher.app (macOS)
 ```
 
 ---
@@ -136,6 +139,28 @@ window only hides it; **Sair** in the tray menu stops everything.
 Code changes need no rebuild: the exe only launches `desktop\app.py`, which applies pending
 migrations and rebuilds the frontend when something under `frontend/src` changed. Database,
 API keys, backups and the session log live in `%LOCALAPPDATA%\JobWatcher`.
+
+### Desktop app (macOS)
+
+```bash
+python3 -m venv backend/.venv                        # once
+scripts/desktop.sh              # builds desktop/JobWatcher.app (needs frontend deps installed)
+```
+
+Double-click **desktop/JobWatcher.app** (or drag it to `/Applications`). Same app: Django on
+waitress at `127.0.0.1:17843`, the worker on a thread and the dashboard in a native WKWebView
+window, with an icon in the **menu bar**. Closing the window only hides it; **Sair** in the
+menu stops everything, and **Abrir ao iniciar o Mac** installs a LaunchAgent. Data, keys,
+backups and the session log live in `~/Library/Application Support/JobWatcher`.
+
+Everything OS-specific — data directory, single-instance port lock, autostart, notifications
+and native dialogs — lives in `desktop/platform_support.py`, so Windows and macOS share one
+`app.py`. Linux uses the same code path (XDG data dir, `.desktop` autostart) and runs from
+`backend/.venv/bin/python desktop/app.py` after `scripts/desktop.sh`.
+
+> **Note:** on macOS the menu-bar icon attaches to pywebview's app loop via pystray's
+> `run_detached()`. If the icon ever misbehaves on your macOS version, open an issue — the
+> window and checks work regardless.
 
 ---
 
@@ -280,8 +305,9 @@ cd frontend && corepack pnpm typecheck && corepack pnpm test   # 109 tests
 
 The suite covers the API, the collectors with mocked HTTP (pagination, retries, the
 archiving rules), the scoring engine, the worker and scheduler, the applications flow, the
-cover letters with the model mocked, the Vaggio import, and on the frontend the grouping of
-applications, the visit pings and the desktop bridge.
+cover letters with the model mocked, the Vaggio import, the desktop platform layer
+(`platform_support`: data dirs, autostart, the port lock), and on the frontend the grouping
+of applications, the visit pings and the desktop bridge.
 
 ---
 
@@ -293,7 +319,7 @@ applications, the visit pings and the desktop bridge.
 |-------|-------------|
 | **Backend** | ![Python](https://img.shields.io/badge/Python_3.13-3776AB?style=flat-square&logo=python&logoColor=white) ![Django](https://img.shields.io/badge/Django_5.2-092E20?style=flat-square&logo=django&logoColor=white) ![DRF](https://img.shields.io/badge/DRF-A30000?style=flat-square&logo=django&logoColor=white) ![pytest](https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white) |
 | **Frontend** | ![React](https://img.shields.io/badge/React_19-20232A?style=flat-square&logo=react&logoColor=61DAFB) ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white) ![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat-square&logo=vite&logoColor=white) ![React Query](https://img.shields.io/badge/TanStack_Query-FF4154?style=flat-square&logo=reactquery&logoColor=white) |
-| **Desktop** | ![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white) ![WebView2](https://img.shields.io/badge/WebView2-0078D7?style=flat-square&logo=microsoftedge&logoColor=white) ![C#](https://img.shields.io/badge/C%23_launcher-512BD4?style=flat-square&logo=dotnet&logoColor=white) |
+| **Desktop** | ![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white) ![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white) ![WebView2](https://img.shields.io/badge/WebView2-0078D7?style=flat-square&logo=microsoftedge&logoColor=white) ![WKWebView](https://img.shields.io/badge/WKWebView-000000?style=flat-square&logo=safari&logoColor=white) ![pywebview](https://img.shields.io/badge/pywebview-1a1a1a?style=flat-square) |
 | **Database** | ![SQLite](https://img.shields.io/badge/SQLite_WAL-003B57?style=flat-square&logo=sqlite&logoColor=white) |
 | **AI** | ![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white) |
 | **Sources** | ![InHire](https://img.shields.io/badge/InHire-218B8D?style=flat-square&logoColor=white) ![Gupy](https://img.shields.io/badge/Gupy-00B37E?style=flat-square&logoColor=white) ![GitHub](https://img.shields.io/badge/GitHub_Issues-181717?style=flat-square&logo=github&logoColor=white) |
