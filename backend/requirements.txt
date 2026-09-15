@@ -1,0 +1,7 @@
+Django==5.2.17
+djangorestframework==3.18.1
+httpx==0.28.1
+apscheduler==3.11.0
+whitenoise==6.12.0
+tzdata==2026.4
+google-genai==2.21.0

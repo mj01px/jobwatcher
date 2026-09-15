@@ -1,0 +1,29 @@
+[project]
+name = "job-watcher-backend"
+version = "1.0.0"
+description = "Django API and worker for Job Watcher"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings_test"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning:apscheduler.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "BLE", "UP", "N", "SIM", "RUF", "DJ"]
+# DJ001: nullable text columns are intentional, the API contract returns null for absent values.
+ignore = ["RUF001", "RUF002", "RUF003", "RUF012", "DJ001"]
+
+[tool.ruff.lint.per-file-ignores]
+"watcher/migrations/*" = ["E501", "N806"]
+"watcher/serializers.py" = ["N815"]
+"pipeline/serializers.py" = ["N815"]
+"pipeline/migrations/*" = ["E501"]
+"tests/*" = ["N802"]
