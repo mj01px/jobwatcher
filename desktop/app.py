@@ -58,6 +58,9 @@ HOST = "127.0.0.1"
 # choice) is stored per origin, and the port is part of the origin.
 PORT = 17843
 
+# How often the background sync pulls remote changes and pushes local ones.
+SYNC_INTERVAL_SECONDS = 120
+
 PLATFORM = platform_support.current()
 APP_DATA = PLATFORM.data_dir
 LOG = APP_DATA / "job-watcher.log"
@@ -273,6 +276,62 @@ class Worker:
             logger.exception("After run hook failed")
 
 
+class SyncWorker:
+    """Keeps this machine's data in step with the shared cloud file.
+
+    Pulls remote changes and pushes local ones on an interval, plus whenever it
+    is poked (the window came back to the foreground). Silent no-op when no sync
+    folder is configured or found.
+    """
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self._wake = threading.Event()
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, daemon=True, name="sync").start()
+
+    def poke(self) -> None:
+        self._wake.set()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._wake.set()
+
+    def _run(self) -> None:
+        from django.db import close_old_connections
+        from watcher.services.sync import is_enabled
+
+        if not is_enabled():
+            logger.info("Sync is disabled: no cloud folder configured or found")
+            return
+        logger.info("Sync started")
+        while not self._stop.is_set():
+            self._sync_once()
+            self._wake.wait(SYNC_INTERVAL_SECONDS)
+            self._wake.clear()
+        close_old_connections()
+
+    def _sync_once(self) -> None:
+        from django.db import close_old_connections
+        from watcher.services.sync import sync
+
+        close_old_connections()
+        try:
+            sync()
+        except Exception:
+            logger.exception("Sync iteration failed")
+        finally:
+            close_old_connections()
+
+    def push_final(self) -> None:
+        """One last sync before the app exits, so nothing is lost on quit."""
+        from watcher.services.sync import is_enabled
+
+        if is_enabled():
+            self._sync_once()
+
+
 class DesktopApp:
     def __init__(self, background: bool) -> None:
         self.background = background
@@ -281,6 +340,7 @@ class DesktopApp:
         self.notifier = Notifier(self.notify)
         self.detector = ApplyDetector(self.notify)
         self.worker = Worker(self.notifier.after_run)
+        self.sync = SyncWorker()
         self.window = webview.create_window(
             "Job Watcher",
             html=_screen("Starting Job Watcher"),
@@ -293,6 +353,9 @@ class DesktopApp:
         )
         self.detector.attach_main_window(self.window)
         self.window.events.closing += self._on_closing
+        # Pull fresh data when the window comes back to the foreground.
+        self.window.events.shown += self.sync.poke
+        self.window.events.restored += self.sync.poke
 
     def _on_closing(self) -> bool:
         if self.quitting:
@@ -343,6 +406,7 @@ class DesktopApp:
             server = create_server(_router(_django(), self.show), sockets=[sock], threads=8)
             threading.Thread(target=server.run, daemon=True, name="waitress").start()
             self.worker.start()
+            self.sync.start()
             self._start_tray()
             threading.Thread(
                 target=self._startup_overdue_notice, daemon=True, name="overdue-notice"
@@ -446,6 +510,8 @@ class DesktopApp:
     def _quit(self, *_args: Any) -> None:
         self.quitting = True
         self.worker.stop()
+        self.sync.stop()
+        self.sync.push_final()  # don't lose changes made since the last interval
         # macOS exits here: window.destroy() blocks the GUI thread instead of
         # unwinding the loop, so it must run before that. No-op on Windows/Linux,
         # which exit cleanly from main() once the window is destroyed.

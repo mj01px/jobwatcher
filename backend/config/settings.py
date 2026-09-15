@@ -64,6 +64,9 @@ FRONTEND_DIST = Path(
 )
 # API keys (Gemini, GitHub) live in this file or in env vars, never in the database.
 SECRETS_FILE = Path(os.getenv("JOB_WATCHER_SECRETS_FILE", str(DATA_DIR / "secrets.json")))
+# Cross-machine sync folder (a cloud-synced directory such as Google Drive). When
+# unset, watcher.services.sync auto-detects Google Drive; empty disables sync.
+SYNC_DIR = os.getenv("JOB_WATCHER_SYNC_DIR")
 # If the Gupy portal endpoint ever moves, override it here.
 GUPY_API = os.getenv("GUPY_API", "https://employability-portal.gupy.io/api/v1/jobs")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
