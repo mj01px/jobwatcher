@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+backend/data/*
+!backend/data/.gitkeep
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Env and local data
+.env
+*.db
+*.db-*
+backups/
+
+# Desktop build outputs
+desktop/JobWatcher.exe
+desktop/job-watcher.ico
