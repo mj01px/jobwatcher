@@ -215,7 +215,35 @@ python manage.py run_worker --once          # process the queue and exit
 python manage.py rescore                    # reapply the scoring profile to every job
 python manage.py fetch_inhire_details       # backfill InHire job descriptions
 python manage.py import_vaggio <file>       # bring jobs, applications and dossier from a Vaggio database
+python manage.py sync                        # pull + push the shared cloud file (see ~/sync)
 ```
+
+---
+
+## `~/sync`
+
+Use Job Watcher on more than one machine (say a Windows PC and a Mac) and your
+applications, timeline, cover letters, manual jobs, sources, scoring profile,
+dossier and API keys stay in step. Both machines scrape the same sources, so the
+jobs regenerate on each; only what **you** do is synced.
+
+It works through a single JSON file in a **cloud-synced folder** — install
+[Google Drive for Desktop](https://www.google.com/drive/download/) on both machines
+and it is found automatically (`~/Library/CloudStorage/GoogleDrive-…/My Drive` on
+macOS, `My Drive` / `G:\` on Windows). To use another folder, set
+`JOB_WATCHER_SYNC_DIR`; leave it empty to turn sync off.
+
+```env
+# A cloud-synced directory. Auto-detects Google Drive when unset; empty disables sync.
+JOB_WATCHER_SYNC_DIR=
+```
+
+The desktop app pulls on start, when the window comes back to the foreground and
+every 2 minutes, and pushes when you change something and on quit. Jobs are matched
+across machines by their global key (`<source>:<external id>`), and the merge keeps
+the newest change per record — safe because you use one machine at a time. Sync
+only creates and updates, never deletes. API keys only fill a machine that is
+missing them; an existing key is never overwritten.
 
 ---
 
