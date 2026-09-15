@@ -147,20 +147,20 @@ python3 -m venv backend/.venv                        # once
 scripts/desktop.sh              # builds desktop/JobWatcher.app (needs frontend deps installed)
 ```
 
-Double-click **desktop/JobWatcher.app** (or drag it to `/Applications`). Same app: Django on
-waitress at `127.0.0.1:17843`, the worker on a thread and the dashboard in a native WKWebView
-window, with an icon in the **menu bar**. Closing the window only hides it; **Sair** in the
-menu stops everything, and **Abrir ao iniciar o Mac** installs a LaunchAgent. Data, keys,
-backups and the session log live in `~/Library/Application Support/JobWatcher`.
+Open **JobWatcher.app** from Launchpad or Spotlight (`scripts/desktop.sh` installs it into
+`/Applications`). Same app: Django on waitress at `127.0.0.1:17843`, the worker on a thread
+and the dashboard in a native WKWebView window. On macOS it is a **Dock app**, not a tray
+app: **closing the window or Cmd+Q quits it**; **minimise** it (or the *Abrir ao iniciar o
+Mac* LaunchAgent) to keep the checks running in the background. **Verificar agora**,
+notifications and open-at-login live in the **Job Watcher menu** at the top of the screen.
+Data, keys, backups and the session log live in `~/Library/Application Support/JobWatcher`.
 
-Everything OS-specific — data directory, single-instance port lock, autostart, notifications
-and native dialogs — lives in `desktop/platform_support.py`, so Windows and macOS share one
-`app.py`. Linux uses the same code path (XDG data dir, `.desktop` autostart) and runs from
-`backend/.venv/bin/python desktop/app.py` after `scripts/desktop.sh`.
-
-> **Note:** on macOS the menu-bar icon attaches to pywebview's app loop via pystray's
-> `run_detached()`. If the icon ever misbehaves on your macOS version, open an issue — the
-> window and checks work regardless.
+Everything OS-specific — data directory, single-instance port lock, autostart, notifications,
+native dialogs and the Dock identity — lives in `desktop/platform_support.py`, so Windows and
+macOS share one `app.py`. Windows keeps its notification-area tray icon; macOS uses the native
+menu (pystray's status-bar backend is unreliable under pywebview). Linux uses the same code
+path (XDG data dir, `.desktop` autostart) and runs from `backend/.venv/bin/python
+desktop/app.py` after `scripts/desktop.sh`.
 
 ---
 
