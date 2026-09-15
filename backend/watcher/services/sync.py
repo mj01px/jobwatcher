@@ -93,21 +93,52 @@ class SyncCounts:
 # --------------------------------------------------------------------------- #
 # Location
 # --------------------------------------------------------------------------- #
-def _drive_candidates() -> list[Path]:
+# "My Drive" is localized by Google Drive per account language, so match the
+# common names. Anything else: point JOB_WATCHER_SYNC_DIR at the folder.
+MY_DRIVE_NAMES = (
+    "My Drive",
+    "Meu Drive",  # pt
+    "Mi unidad",  # es
+    "Mon Drive",  # fr
+    "Mein Drive",  # de
+    "Il mio Drive",  # it
+    "Mijn Drive",  # nl
+    "マイドライブ",  # ja
+    "내 드라이브",  # ko
+    "我的云端硬盘",  # zh
+)
+
+
+def _mount_roots() -> list[Path]:
+    """Where Google Drive for Desktop may be mounted, before the "My Drive" part."""
     home = Path.home()
-    patterns = [
-        str(home / "Library" / "CloudStorage" / "GoogleDrive-*" / "My Drive"),  # macOS
-        str(home / "Google Drive" / "My Drive"),
-        str(home / "Google Drive"),
-    ]
+    roots = [Path(m) for m in glob.glob(str(home / "Library" / "CloudStorage" / "GoogleDrive-*"))]
+    roots.append(home / "Google Drive")
     userprofile = os.environ.get("USERPROFILE")
     if userprofile:  # Windows
-        patterns += [str(Path(userprofile) / "My Drive"), str(Path(userprofile) / "Google Drive")]
-    patterns += [f"{letter}:\\My Drive" for letter in ("G", "H", "I")]
+        roots += [Path(userprofile) / "Google Drive", Path(userprofile)]
+    roots += [Path(f"{letter}:\\") for letter in ("G", "H", "I")]
+    return roots
 
+
+def _personal_drive(mount: Path) -> Path | None:
+    """The writable "My Drive" folder inside a mount (handles localized names)."""
+    for name in MY_DRIVE_NAMES:
+        candidate = mount / name
+        if candidate.is_dir():
+            return candidate
+    # Some setups mount the personal drive directly as the root (e.g. a drive letter).
+    if mount.is_dir() and os.access(mount, os.W_OK):
+        return mount
+    return None
+
+
+def _drive_candidates() -> list[Path]:
     found: list[Path] = []
-    for pattern in patterns:
-        found.extend(Path(match) for match in glob.glob(pattern))
+    for mount in _mount_roots():
+        personal = _personal_drive(mount)
+        if personal is not None:
+            found.append(personal)
     return found
 
 
@@ -117,10 +148,8 @@ def sync_root() -> Path | None:
     if configured is not None:
         cleaned = configured.strip()
         return Path(cleaned).expanduser() if cleaned else None
-    for candidate in _drive_candidates():
-        if candidate.is_dir():
-            return candidate
-    return None
+    candidates = _drive_candidates()
+    return candidates[0] if candidates else None
 
 
 def sync_file() -> Path | None:
