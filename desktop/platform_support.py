@@ -131,6 +131,10 @@ class Platform:
         on_ready(icon)
         threading.Thread(target=icon.run, daemon=True, name="tray").start()
 
+    # -- app identity ---------------------------------------------------
+    def set_app_identity(self, name: str, icon_png: bytes) -> None:
+        """Set the running app's display name and icon. Only macOS needs this."""
+
     # -- shutdown -------------------------------------------------------
     def terminate(self) -> None:
         """Force the process to exit after the tray asked to quit.
@@ -259,29 +263,9 @@ class MacPlatform(Platform):
     def _agent_plist(self) -> Path:
         return Path.home() / "Library" / "LaunchAgents" / f"{BUNDLE_ID}.plist"
 
-    def start_tray(
-        self, make_icon: Callable[[], Any], on_ready: Callable[[Any], None]
-    ) -> None:
-        # The status-bar item is an NSWindow, which AppKit only lets us create
-        # on the main thread. The app runs boot() on a worker thread, so hop
-        # onto pywebview's already-running main loop to build it there, then
-        # run_detached() attaches it instead of starting a second loop.
-        from PyObjCTools import AppHelper
-
-        def build() -> None:
-            try:
-                icon = make_icon()
-                on_ready(icon)
-                # pystray's default setup flips `visible` from a worker thread,
-                # which touches AppKit off the main thread and renders a glitched,
-                # oversized item. Pass a no-op setup and show it here, on the main
-                # thread, so the status item is sized to the menu bar correctly.
-                icon.run_detached(setup=lambda _icon: None)
-                icon.visible = True
-            except Exception:
-                logger.exception("Could not start the menu-bar icon")
-
-        AppHelper.callAfter(build)
+    # macOS uses a native Dock app with a top-of-screen menu instead of a
+    # pystray status icon (see app.native_menu), so it does not override
+    # start_tray — the tray is never started on macOS.
 
     def autostart_supported(self) -> bool:
         return True
@@ -317,11 +301,32 @@ class MacPlatform(Platform):
         subprocess.run(["launchctl", "unload", str(plist)], check=False, capture_output=True)
         subprocess.run(["launchctl", "load", str(plist)], check=False, capture_output=True)
 
+    def set_app_identity(self, name: str, icon_png: bytes) -> None:
+        # The app runs under the framework Python interpreter (the launcher
+        # execs it), so without this the Dock shows Python's icon and name
+        # instead of Job Watcher's. Runs on the main thread: it touches AppKit.
+        from PyObjCTools import AppHelper
+
+        def apply() -> None:
+            try:
+                import AppKit
+                import Foundation
+
+                info = Foundation.NSBundle.mainBundle().infoDictionary()
+                if info is not None:
+                    info["CFBundleName"] = name
+                image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(icon_png))
+                if image is not None:
+                    AppKit.NSApp.setApplicationIconImage_(image)
+            except Exception:
+                logger.exception("Could not set the macOS app identity")
+
+        AppHelper.callAfter(apply)
+
     def terminate(self) -> None:
         # pywebview keeps the NSApplication loop alive even after the window is
-        # destroyed (the status item is still attached), so main() would never
-        # get to exit. As an LSUIElement app there is no Dock or Force Quit
-        # entry either, so a stuck process is unclosable: exit hard here.
+        # destroyed, so main() would never get to exit. Exit hard so quitting
+        # from the window close or the menu always works.
         sys.stdout.flush()
         os._exit(0)
 

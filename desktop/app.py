@@ -42,7 +42,7 @@ import platform_support
 import pystray
 import webview
 from apply_detection import ApplyDetector
-from icon import ICO_PATH, draw_mark, draw_menu_bar_icon
+from icon import ICO_PATH, draw_macos_icon, draw_mark
 from notifications import APP_TITLE, Notifier
 from waitress import create_server
 
@@ -295,9 +295,14 @@ class DesktopApp:
         self.window.events.closing += self._on_closing
 
     def _on_closing(self) -> bool:
-        # Closing hides the window; only "Sair" in the tray stops the monitor.
         if self.quitting:
             return True
+        if PLATFORM.name == "macos":
+            # A Dock app: closing quits (reliably). Minimise (yellow) or the
+            # "open at login" agent keep it running in the background instead.
+            self._quit()
+            return True
+        # Windows tray app: closing only hides; "Sair" in the tray stops it.
         self.window.hide()
         return False
 
@@ -314,9 +319,18 @@ class DesktopApp:
         time.sleep(8)
         self.notifier.maybe_overdue()
 
+    def _apply_app_identity(self) -> None:
+        """Give the Dock the Job Watcher icon and name (macOS only)."""
+        import io
+
+        buffer = io.BytesIO()
+        draw_macos_icon(256).save(buffer, "png")
+        PLATFORM.set_app_identity("Job Watcher", buffer.getvalue())
+
     def boot(self, sock: socket.socket) -> None:
         """Build the frontend if needed, start Django, the worker and the tray."""
         try:
+            self._apply_app_identity()
             if _frontend_is_stale():
                 self.window.load_html(
                     _screen(
@@ -347,15 +361,44 @@ class DesktopApp:
             )
             self.show()
 
+    def native_menu(self) -> list[Any]:
+        """The macOS application menu, passed to webview.start().
+
+        macOS uses a native Dock app with a top-of-screen menu instead of a
+        pystray status icon (pystray's macOS backend is unreliable under
+        pywebview's run loop). Empty on other platforms, which use the tray.
+        """
+        if PLATFORM.name != "macos":
+            return []
+        from webview.menu import Menu, MenuAction, MenuSeparator
+
+        return [
+            Menu(
+                "Job Watcher",
+                [
+                    MenuAction("Verificar agora", self._check_now),
+                    MenuSeparator(),
+                    MenuAction("Ativar/desativar notificações", self._toggle_notifications),
+                    MenuAction("Abrir ao iniciar o Mac (ligar/desligar)", self._toggle_autostart),
+                    MenuSeparator(),
+                    MenuAction("Sair", self._quit),
+                ],
+            )
+        ]
+
     def _start_tray(self) -> None:
+        # macOS has no tray: it uses the native menu (native_menu) instead.
+        if PLATFORM.name == "macos":
+            return
+
         # Brazilian Portuguese, the app default language.
         items = [
             pystray.MenuItem("Abrir Job Watcher", self._tray_open, default=True),
-            pystray.MenuItem("Verificar agora", self._tray_check_now),
+            pystray.MenuItem("Verificar agora", self._check_now),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
                 "Notificações",
-                self._tray_toggle_notifications,
+                self._toggle_notifications,
                 checked=lambda _item: self.notifier.enabled(),
             ),
         ]
@@ -363,21 +406,15 @@ class DesktopApp:
             items.append(
                 pystray.MenuItem(
                     PLATFORM.autostart_menu_label,
-                    self._tray_toggle_autostart,
+                    self._toggle_autostart,
                     checked=lambda _item: autostart_enabled(),
                 )
             )
-        items.append(pystray.MenuItem("Sair", self._tray_quit))
+        items.append(pystray.MenuItem("Sair", self._quit))
         menu = pystray.Menu(*items)
 
-        # macOS scales the image to the menu bar, so it gets a padded variant;
-        # the Windows notification area keeps the full-bleed mark.
-        image = draw_menu_bar_icon(64) if PLATFORM.name == "macos" else draw_mark(64)
-
-        # The icon is built through this factory so macOS can create it on the
-        # main thread (AppKit requires it); see platform_support.start_tray.
         def make_icon() -> pystray.Icon:
-            return pystray.Icon("job-watcher", image, "Job Watcher", menu)
+            return pystray.Icon("job-watcher", draw_mark(64), "Job Watcher", menu)
 
         PLATFORM.start_tray(make_icon, self._set_tray)
 
@@ -387,7 +424,7 @@ class DesktopApp:
     def _tray_open(self, _icon: Any = None, _item: Any = None) -> None:
         self.show()
 
-    def _tray_check_now(self, _icon: Any = None, _item: Any = None) -> None:
+    def _check_now(self, *_args: Any) -> None:
         from django.db import close_old_connections
         from watcher.models import CheckRun
         from watcher.services.runs import enqueue_run
@@ -396,17 +433,17 @@ class DesktopApp:
         try:
             enqueue_run(CheckRun.Trigger.MANUAL)
         except Exception:
-            logger.exception("Could not queue a check from the tray")
+            logger.exception("Could not queue a check")
         finally:
             close_old_connections()
 
-    def _tray_toggle_autostart(self, _icon: Any = None, _item: Any = None) -> None:
+    def _toggle_autostart(self, *_args: Any) -> None:
         set_autostart(not autostart_enabled())
 
-    def _tray_toggle_notifications(self, _icon: Any = None, _item: Any = None) -> None:
+    def _toggle_notifications(self, *_args: Any) -> None:
         self.notifier.set_enabled(not self.notifier.enabled())
 
-    def _tray_quit(self, _icon: Any = None, _item: Any = None) -> None:
+    def _quit(self, *_args: Any) -> None:
         self.quitting = True
         self.worker.stop()
         # macOS exits here: window.destroy() blocks the GUI thread instead of
@@ -444,6 +481,7 @@ def main() -> None:
         private_mode=False,
         storage_path=str(APP_DATA / "webview"),
         icon=str(ICO_PATH) if ICO_PATH.exists() else None,
+        menu=app.native_menu(),
     )
     # Window destroyed by "Quit": exit now, even with a check still running on
     # a thread (the next start marks it as interrupted).

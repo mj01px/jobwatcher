@@ -60,8 +60,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
     <key>NSHighResolutionCapable</key><true/>
-    <!-- Menu-bar app: no Dock icon, the tray icon is the entry point. -->
-    <key>LSUIElement</key><true/>
 </dict>
 </plist>
 PLIST
@@ -109,5 +107,6 @@ LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchS
 
 echo
 echo "Done. Installed to $DEST/JobWatcher.app — open it from Launchpad or Spotlight."
-echo "Closing the window keeps the checks running from the menu-bar icon; use"
-echo "'Sair' there to stop. Enable 'open at login' from the same menu."
+echo "It runs as a Dock app: closing the window (or Cmd+Q) quits it. Minimise it"
+echo "to keep the checks running in the background. 'Verificar agora', notifications"
+echo "and 'open at login' are in the Job Watcher menu at the top of the screen."
