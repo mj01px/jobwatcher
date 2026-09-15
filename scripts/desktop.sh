@@ -91,7 +91,17 @@ if command -v iconutil >/dev/null && command -v sips >/dev/null; then
     fi
 fi
 
+# Install into /Applications so it shows up in Launchpad and Spotlight. The
+# launcher points at this repo by absolute path, so the copy stays in sync with
+# code changes. Falls back to ~/Applications when /Applications is not writable.
+DEST="/Applications"
+[[ -w "$DEST" ]] || { DEST="$HOME/Applications"; mkdir -p "$DEST"; }
+rm -rf "$DEST/JobWatcher.app"
+ditto "$APP" "$DEST/JobWatcher.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+[[ -x "$LSREGISTER" ]] && "$LSREGISTER" -f "$DEST/JobWatcher.app" 2>/dev/null || true
+
 echo
-echo "Done. Open desktop/JobWatcher.app (double-click, or drag it to /Applications)."
+echo "Done. Installed to $DEST/JobWatcher.app — open it from Launchpad or Spotlight."
 echo "Closing the window keeps the checks running from the menu-bar icon; use"
 echo "'Sair' there to stop. Enable 'open at login' from the same menu."
