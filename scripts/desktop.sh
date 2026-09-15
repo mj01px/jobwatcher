@@ -68,9 +68,15 @@ PLIST
 
 # The launcher runs the venv Python on app.py. The repo path is baked in, like
 # the Windows shortcut: rerun this script if the project ever moves.
+#
+# On Apple Silicon, force the native arch: LaunchServices may start the wrapper
+# under Rosetta (x86_64), and the venv's native extensions (Pillow, pyobjc) are
+# arm64-only, so the app would fail to import when opened from Launchpad.
+ARCH_PREFIX=""
+[[ "$(uname -m)" == "arm64" ]] && ARCH_PREFIX="/usr/bin/arch -arm64 "
 cat > "$APP/Contents/MacOS/jobwatcher" <<LAUNCHER
 #!/bin/bash
-exec "$PY" "$ROOT/desktop/app.py" "\$@"
+exec ${ARCH_PREFIX}"$PY" "$ROOT/desktop/app.py" "\$@"
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/jobwatcher"
 
