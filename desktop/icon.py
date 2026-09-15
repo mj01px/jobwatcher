@@ -67,6 +67,27 @@ def draw_macos_icon(size: int = 1024) -> Image.Image:
     return image
 
 
+def draw_menu_bar_icon(size: int = 64) -> Image.Image:
+    """Render the mark for the macOS menu bar: padded and rounded, not full-bleed.
+
+    pystray scales the image to the menu-bar height, so a full-bleed square
+    (:func:`draw_mark`) becomes a heavy block edge to edge. Transparent padding
+    around a rounded tile makes the icon read at the same visual weight as the
+    native menu-bar items.
+    """
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    margin = round(size * 0.16)
+    content = size - 2 * margin
+    radius = round(content * 0.2237)
+
+    tile = draw_mark(content)
+    mask = Image.new("L", (content, content), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, content - 1, content - 1), radius=radius, fill=255)
+
+    image.paste(tile, (margin, margin), mask)
+    return image
+
+
 def write_ico(path: Path = ICO_PATH) -> Path:
     draw_mark(256).save(path, sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
     return path

@@ -42,7 +42,7 @@ import platform_support
 import pystray
 import webview
 from apply_detection import ApplyDetector
-from icon import ICO_PATH, draw_mark
+from icon import ICO_PATH, draw_mark, draw_menu_bar_icon
 from notifications import APP_TITLE, Notifier
 from waitress import create_server
 
@@ -370,10 +370,14 @@ class DesktopApp:
         items.append(pystray.MenuItem("Sair", self._tray_quit))
         menu = pystray.Menu(*items)
 
+        # macOS scales the image to the menu bar, so it gets a padded variant;
+        # the Windows notification area keeps the full-bleed mark.
+        image = draw_menu_bar_icon(64) if PLATFORM.name == "macos" else draw_mark(64)
+
         # The icon is built through this factory so macOS can create it on the
         # main thread (AppKit requires it); see platform_support.start_tray.
         def make_icon() -> pystray.Icon:
-            return pystray.Icon("job-watcher", draw_mark(64), "Job Watcher", menu)
+            return pystray.Icon("job-watcher", image, "Job Watcher", menu)
 
         PLATFORM.start_tray(make_icon, self._set_tray)
 
@@ -404,11 +408,15 @@ class DesktopApp:
 
     def _tray_quit(self, _icon: Any = None, _item: Any = None) -> None:
         self.quitting = True
-        self.worker.stop()
-        self.detector.close_all()
-        if self.tray is not None:
-            self.tray.stop()
-        self.window.destroy()
+        try:
+            self.worker.stop()
+            self.detector.close_all()
+            if self.tray is not None:
+                self.tray.stop()
+            self.window.destroy()
+        finally:
+            # macOS won't exit on its own; on Windows/Linux this is a no-op.
+            PLATFORM.terminate()
 
 
 def main() -> None:

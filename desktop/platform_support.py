@@ -131,6 +131,14 @@ class Platform:
         on_ready(icon)
         threading.Thread(target=icon.run, daemon=True, name="tray").start()
 
+    # -- shutdown -------------------------------------------------------
+    def terminate(self) -> None:
+        """Force the process to exit after the tray asked to quit.
+
+        Windows and Linux let ``window.destroy()`` unwind the GUI loop and then
+        exit from ``main()``; macOS overrides this (see :class:`MacPlatform`).
+        """
+
     # -- user feedback --------------------------------------------------
     def show_error(self, title: str, message: str) -> None:
         """Show a blocking, native error to the user."""
@@ -303,6 +311,14 @@ class MacPlatform(Platform):
         # Reload so the change takes effect without a logout.
         subprocess.run(["launchctl", "unload", str(plist)], check=False, capture_output=True)
         subprocess.run(["launchctl", "load", str(plist)], check=False, capture_output=True)
+
+    def terminate(self) -> None:
+        # pywebview keeps the NSApplication loop alive even after the window is
+        # destroyed (the status item is still attached), so main() would never
+        # get to exit. As an LSUIElement app there is no Dock or Force Quit
+        # entry either, so a stuck process is unclosable: exit hard here.
+        sys.stdout.flush()
+        os._exit(0)
 
     def show_error(self, title: str, message: str) -> None:
         script = (
