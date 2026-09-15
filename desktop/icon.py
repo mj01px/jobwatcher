@@ -43,6 +43,30 @@ def draw_mark(size: int = 256) -> Image.Image:
     return image
 
 
+def draw_macos_icon(size: int = 1024) -> Image.Image:
+    """Render the mark on a macOS-style rounded tile with margins.
+
+    macOS app icons are rounded squares inset from the canvas edges; the
+    full-bleed :func:`draw_mark` looks oversized and boxy next to them in
+    Launchpad and the Dock, so the ``.icns`` uses this variant instead. The
+    corners are transparent and there is a margin around the tile.
+    """
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    margin = round(size * 0.10)
+    content = size - 2 * margin
+    radius = round(content * 0.2237)  # Apple's continuous-corner squircle ratio.
+
+    # The mark (block 0 is the full brand-coloured background) drawn at tile size.
+    tile = draw_mark(content)
+
+    # Round the corners by keeping only what falls inside a rounded rectangle.
+    mask = Image.new("L", (content, content), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, content - 1, content - 1), radius=radius, fill=255)
+
+    image.paste(tile, (margin, margin), mask)
+    return image
+
+
 def write_ico(path: Path = ICO_PATH) -> Path:
     draw_mark(256).save(path, sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
     return path

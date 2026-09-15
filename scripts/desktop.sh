@@ -85,7 +85,7 @@ if command -v iconutil >/dev/null && command -v sips >/dev/null; then
     ICONSET="$(mktemp -d)/job-watcher.iconset"
     mkdir -p "$ICONSET"
     if PYTHONPATH="$ROOT/desktop" "$PY" -c \
-        "from icon import draw_mark; draw_mark(1024).save('$ICONSET/icon_512x512@2x.png')" 2>/dev/null; then
+        "from icon import draw_macos_icon; draw_macos_icon(1024).save('$ICONSET/icon_512x512@2x.png')" 2>/dev/null; then
         for size in 16 32 128 256 512; do
             sips -z "$size" "$size" "$ICONSET/icon_512x512@2x.png" \
                 --out "$ICONSET/icon_${size}x${size}.png" >/dev/null 2>&1 || true
