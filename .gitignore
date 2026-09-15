@@ -21,3 +21,12 @@ backups/
 # Desktop build outputs
 desktop/JobWatcher.exe
 desktop/job-watcher.ico
+desktop/JobWatcher.app/
+desktop/job-watcher.icns
+
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
