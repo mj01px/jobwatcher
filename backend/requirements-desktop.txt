@@ -1,0 +1,12 @@
+# Windows desktop app (desktop/app.py, opened by desktop/JobWatcher.exe).
+# Installed into backend/.venv by scripts/desktop.bat.
+-r requirements.txt
+
+# Pure Python threaded WSGI server: serves the API and the SPA on Windows.
+waitress==3.0.2
+# Native window on top of Edge WebView2; pulls pythonnet.
+pywebview==6.2.1
+# Notification area icon that keeps the monitor alive with the window closed.
+pystray==0.19.5
+# Draws the app icon for the tray and the .ico file.
+pillow==12.3.0
