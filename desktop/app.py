@@ -408,15 +408,15 @@ class DesktopApp:
 
     def _tray_quit(self, _icon: Any = None, _item: Any = None) -> None:
         self.quitting = True
-        try:
-            self.worker.stop()
-            self.detector.close_all()
-            if self.tray is not None:
-                self.tray.stop()
-            self.window.destroy()
-        finally:
-            # macOS won't exit on its own; on Windows/Linux this is a no-op.
-            PLATFORM.terminate()
+        self.worker.stop()
+        # macOS exits here: window.destroy() blocks the GUI thread instead of
+        # unwinding the loop, so it must run before that. No-op on Windows/Linux,
+        # which exit cleanly from main() once the window is destroyed.
+        PLATFORM.terminate()
+        self.detector.close_all()
+        if self.tray is not None:
+            self.tray.stop()
+        self.window.destroy()
 
 
 def main() -> None:

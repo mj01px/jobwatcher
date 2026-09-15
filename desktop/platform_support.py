@@ -272,7 +272,12 @@ class MacPlatform(Platform):
             try:
                 icon = make_icon()
                 on_ready(icon)
-                icon.run_detached()
+                # pystray's default setup flips `visible` from a worker thread,
+                # which touches AppKit off the main thread and renders a glitched,
+                # oversized item. Pass a no-op setup and show it here, on the main
+                # thread, so the status item is sized to the menu bar correctly.
+                icon.run_detached(setup=lambda _icon: None)
+                icon.visible = True
             except Exception:
                 logger.exception("Could not start the menu-bar icon")
 
