@@ -18,7 +18,6 @@ import { OpenJobLink } from "../OpenJobLink";
 import { PitchPanel } from "../PitchPanel";
 import { useToasts } from "../Toasts";
 import type { DrawerFocus } from "./ApplicationRow";
-import { InteractionsTimeline } from "./InteractionsTimeline";
 
 const PRIORITIES = [1, 2, 3, 4, 5] as const;
 
@@ -118,8 +117,6 @@ export function ApplicationDrawer({ application, open, focus = null, onClose }: 
             nextStepOnRef={nextStepOnRef}
             onRemoved={onClose}
           />
-
-          {detail ? <InteractionsTimeline applicationId={detail.id} interactions={detail.interactions} /> : null}
 
           {open ? <PitchPanel jobId={shown.job.id} /> : null}
         </div>
