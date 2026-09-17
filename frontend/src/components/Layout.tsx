@@ -1,10 +1,9 @@
-import type { ChangeEvent } from "react";
 import { Link, NavLink, Outlet } from "react-router";
 
 import { useRunCompletionRefresh, useStatus, useVisitPings } from "../api/hooks";
 import markUrl from "../assets/job-watcher-mark.svg";
 import type { TranslationKey } from "../i18n/dictionary";
-import { toLanguage, useI18n } from "../i18n/I18nProvider";
+import { useI18n } from "../i18n/I18nProvider";
 
 interface NavItem {
   to: string;
@@ -28,14 +27,10 @@ const NAV_ITEMS: readonly NavItem[] = [
 const navLinkClass = ({ isActive }: { isActive: boolean }) => (isActive ? "nav-link active" : "nav-link");
 
 export function Layout() {
-  const { t, language, setLanguage } = useI18n();
+  const { t } = useI18n();
   const { data: status } = useStatus();
   useRunCompletionRefresh(status?.isRunning);
   useVisitPings();
-
-  const handleLanguageChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setLanguage(toLanguage(event.target.value));
-  };
 
   return (
     <div className="app-shell">
@@ -60,20 +55,6 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-
-        <div className="sidebar-foot">
-          <div className="language-control">
-            <label htmlFor="language">{t("sidebar.language")}</label>
-            <select id="language" aria-label="Interface language" value={language} onChange={handleLanguageChange}>
-              <option value="en">English</option>
-              <option value="pt">Português</option>
-            </select>
-          </div>
-          <div className="schedule-note">
-            <span>{t("sidebar.schedule")}</span>
-            <strong>09 · 12 · 15 · 18</strong>
-          </div>
-        </div>
       </aside>
 
       <main className="main-content">

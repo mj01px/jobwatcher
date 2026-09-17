@@ -77,33 +77,33 @@ describe("open job, inline prompt and desktop bridge", () => {
     const user = userEvent.setup();
     const view = renderList([makeJob()]);
 
-    expect(screen.queryByText("Did you apply?")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("link", { name: /Open job/ }));
+    expect(screen.queryByText("Você se candidatou?")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: /Abrir vaga/ }));
 
     expect(lastClickPrevented).toBe(false);
-    expect(await screen.findByText("Did you apply?")).toBeInTheDocument();
+    expect(await screen.findByText("Você se candidatou?")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(calls(fetchMock)).toContainEqual({ url: "/api/v1/jobs/42/visit", method: "POST", body: undefined }));
 
-    await user.click(screen.getByRole("button", { name: "Not now" }));
-    expect(screen.queryByText("Did you apply?")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Agora não" }));
+    expect(screen.queryByText("Você se candidatou?")).not.toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem(PROMPT_DISMISSED_STORAGE_KEY) ?? "[]")).toEqual([42]);
 
     view.unmount();
     renderList([makeJob()]);
-    expect(screen.getByText("Last opened")).toBeInTheDocument();
-    expect(screen.queryByText("Did you apply?")).not.toBeInTheDocument();
+    expect(screen.getByText("Última aberta")).toBeInTheDocument();
+    expect(screen.queryByText("Você se candidatou?")).not.toBeInTheDocument();
   });
 
   it("Applied from the prompt creates the application and removes the row", async () => {
     const user = userEvent.setup();
     renderList([makeJob()]);
 
-    await user.click(screen.getByRole("link", { name: /Open job/ }));
-    const prompt = await screen.findByRole("group", { name: "Did you apply?" });
+    await user.click(screen.getByRole("link", { name: /Abrir vaga/ }));
+    const prompt = await screen.findByRole("group", { name: "Você se candidatou?" });
     await user.click(prompt.querySelector("button") as HTMLButtonElement);
 
-    expect(await screen.findByText("Backend Developer moved to Applications.")).toBeInTheDocument();
+    expect(await screen.findByText("Backend Developer foi para Candidaturas.")).toBeInTheDocument();
     expect(calls(fetchMock)).toContainEqual({ url: "/api/v1/jobs/42/application", method: "POST", body: { status: "applied" } });
     expect(screen.queryByRole("button", { name: "Backend Developer" })).not.toBeInTheDocument();
   });
@@ -112,9 +112,9 @@ describe("open job, inline prompt and desktop bridge", () => {
     const user = userEvent.setup();
     renderList([makeJob({ application: { id: 5, status: "applied" } })]);
 
-    await user.click(screen.getByRole("link", { name: /Open job/ }));
-    expect(screen.getByText("Last opened")).toBeInTheDocument();
-    expect(screen.queryByText("Did you apply?")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: /Abrir vaga/ }));
+    expect(screen.getByText("Última aberta")).toBeInTheDocument();
+    expect(screen.queryByText("Você se candidatou?")).not.toBeInTheDocument();
   });
 
   it("inside the desktop app an InHire job opens through the bridge instead of the link", async () => {
@@ -123,11 +123,11 @@ describe("open job, inline prompt and desktop bridge", () => {
     Reflect.set(window, "pywebview", { api: { open_job: openJob } });
     renderList([makeJob()]);
 
-    await user.click(screen.getByRole("link", { name: /Open job/ }));
+    await user.click(screen.getByRole("link", { name: /Abrir vaga/ }));
 
     expect(openJob).toHaveBeenCalledWith(42);
     expect(lastClickPrevented).toBe(true);
-    expect(await screen.findByText("Did you apply?")).toBeInTheDocument();
+    expect(await screen.findByText("Você se candidatou?")).toBeInTheDocument();
     await waitFor(() => expect(calls(fetchMock).some((call) => call.url === "/api/v1/jobs/42/visit")).toBe(true));
   });
 
@@ -137,7 +137,7 @@ describe("open job, inline prompt and desktop bridge", () => {
     Reflect.set(window, "pywebview", { api: { open_job: openJob } });
     renderList([makeJob({ id: 7, sourceKind: "gupy", url: "https://portal.gupy.io/job/7" })]);
 
-    await user.click(screen.getByRole("link", { name: /Open job/ }));
+    await user.click(screen.getByRole("link", { name: /Abrir vaga/ }));
 
     expect(openJob).not.toHaveBeenCalled();
     expect(lastClickPrevented).toBe(false);
@@ -150,7 +150,7 @@ describe("open job, inline prompt and desktop bridge", () => {
     Reflect.set(window, "pywebview", { api: { open_job: () => Promise.reject(new Error("closed")) } });
     renderList([makeJob()]);
 
-    await user.click(screen.getByRole("link", { name: /Open job/ }));
+    await user.click(screen.getByRole("link", { name: /Abrir vaga/ }));
 
     await waitFor(() =>
       expect(windowOpen).toHaveBeenCalledWith(
@@ -170,7 +170,7 @@ describe("open job, inline prompt and desktop bridge", () => {
       );
     });
 
-    expect(await screen.findByText("Application recorded. The job moved to Applications.")).toBeInTheDocument();
+    expect(await screen.findByText("Candidatura registrada. A vaga foi para Candidaturas.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Backend Developer" })).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Frontend Developer" })).toBeInTheDocument();
   });
@@ -182,7 +182,7 @@ describe("open job, inline prompt and desktop bridge", () => {
       window.dispatchEvent(new CustomEvent(APPLICATION_DETECTED_EVENT, { detail: { jobId: "42" } }));
     });
 
-    expect(screen.queryByText("Application recorded. The job moved to Applications.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Candidatura registrada. A vaga foi para Candidaturas.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Backend Developer" })).toBeInTheDocument();
   });
 });

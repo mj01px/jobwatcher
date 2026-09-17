@@ -81,19 +81,19 @@ describe("applications list", () => {
   it("groups by wait with counts on every tab", async () => {
     renderPage("active");
 
-    const late = await screen.findByRole("region", { name: "10+ DAYS WITHOUT AN ANSWER" });
+    const late = await screen.findByRole("region", { name: "10+ DIAS SEM RESPOSTA" });
     expect(within(late).getByRole("button", { name: "Java Developer" })).toBeInTheDocument();
-    const recent = screen.getByRole("region", { name: "2 TO 9 DAYS" });
+    const recent = screen.getByRole("region", { name: "2 A 9 DIAS" });
     expect(within(recent).getByRole("button", { name: "Data Analyst" })).toBeInTheDocument();
-    const fresh = screen.getByRole("region", { name: "TODAY AND YESTERDAY" });
-    expect(within(fresh).getByText("today")).toBeInTheDocument();
+    const fresh = screen.getByRole("region", { name: "HOJE E ONTEM" });
+    expect(within(fresh).getByText("hoje")).toBeInTheDocument();
 
-    const tabs = screen.getByRole("navigation", { name: "Application views" });
-    await waitFor(() => expect(within(tabs).getByRole("link", { name: /Closed/ })).toHaveTextContent("1"));
-    expect(within(tabs).getByRole("link", { name: /Active/ })).toHaveTextContent("3");
-    expect(within(tabs).getByRole("link", { name: /Stalled/ })).toHaveTextContent("1");
-    expect(within(tabs).getByRole("link", { name: /In progress/ })).toHaveTextContent("1");
-    expect(screen.getByText("1 NEED A FOLLOW-UP")).toBeInTheDocument();
+    const tabs = screen.getByRole("navigation", { name: "Visões de candidaturas" });
+    await waitFor(() => expect(within(tabs).getByRole("link", { name: /Encerradas/ })).toHaveTextContent("1"));
+    expect(within(tabs).getByRole("link", { name: /Ativas/ })).toHaveTextContent("3");
+    expect(within(tabs).getByRole("link", { name: /Paradas/ })).toHaveTextContent("1");
+    expect(within(tabs).getByRole("link", { name: /Em processo/ })).toHaveTextContent("1");
+    expect(screen.getByText("1 PEDEM FOLLOW-UP")).toBeInTheDocument();
   });
 
   it("filters the stalled and in progress tabs", async () => {
@@ -106,7 +106,7 @@ describe("applications list", () => {
     expect(await screen.findByRole("button", { name: "Data Analyst" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Java Developer" })).not.toBeInTheDocument();
     // Past the answer: no "Got an answer" on an interview.
-    expect(screen.queryByRole("button", { name: "Got an answer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Recebi resposta" })).not.toBeInTheDocument();
   });
 
   it("Got an answer moves to screening and logs the answer", async () => {
@@ -114,15 +114,15 @@ describe("applications list", () => {
     renderPage("active");
 
     const row = (await screen.findByRole("button", { name: "Java Developer" })).closest("article") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Got an answer" }));
+    await user.click(within(row).getByRole("button", { name: "Recebi resposta" }));
 
-    expect(await screen.findByText("Java Developer moved to Screening.")).toBeInTheDocument();
+    expect(await screen.findByText("Java Developer foi para Em triagem.")).toBeInTheDocument();
     const sent = calls(fetchMock);
     expect(sent).toContainEqual({ url: "/api/v1/applications/1", method: "PATCH", body: { status: "screening" } });
     expect(sent).toContainEqual({
       url: "/api/v1/applications/1/interactions",
       method: "POST",
-      body: expect.objectContaining({ title: "Answer received" }),
+      body: expect.objectContaining({ title: "Resposta recebida" }),
     });
   });
 
@@ -130,10 +130,10 @@ describe("applications list", () => {
     const user = userEvent.setup();
     renderPage("active");
 
-    await user.click(await screen.findByRole("button", { name: "Set the next step for Java Developer" }));
+    await user.click(await screen.findByRole("button", { name: "Definir o próximo passo de Java Developer" }));
 
     const dialog = await screen.findByRole("dialog");
-    const input = within(dialog).getByRole("textbox", { name: "Next step" });
+    const input = within(dialog).getByRole("textbox", { name: "Próximo passo" });
     await waitFor(() => expect(input).toHaveFocus());
   });
 
@@ -144,20 +144,20 @@ describe("applications list", () => {
     await user.click(await screen.findByRole("button", { name: "Java Developer" }));
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getByRole("button", { name: /Applied/, pressed: true })).toBeInTheDocument();
-    expect(within(dialog).getByText("NO ANSWER")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Aplicada/, pressed: true })).toBeInTheDocument();
+    expect(within(dialog).getByText("SEM RESPOSTA")).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: /Log follow-up/ }));
+    await user.click(within(dialog).getByRole("button", { name: /Registrar follow-up/ }));
     await waitFor(() =>
       expect(calls(fetchMock)).toContainEqual({
         url: "/api/v1/applications/1/interactions",
         method: "POST",
-        body: expect.objectContaining({ title: "Follow-up sent" }),
+        body: expect.objectContaining({ title: "Follow-up enviado" }),
       }),
     );
-    expect(await screen.findByText("Follow-up logged. Set the next step date.")).toBeInTheDocument();
+    expect(await screen.findByText("Follow-up registrado. Defina a data do próximo passo.")).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: /Interview/ }));
+    await user.click(within(dialog).getByRole("button", { name: /Entrevista/ }));
     await waitFor(() =>
       expect(calls(fetchMock)).toContainEqual({ url: "/api/v1/applications/1", method: "PATCH", body: { status: "interview" } }),
     );

@@ -72,21 +72,21 @@ describe("job row actions", () => {
     });
 
     renderList();
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Arquivar" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Archive job" });
+    const dialog = await screen.findByRole("dialog", { name: "Arquivar vaga" });
     expect(within(dialog).getByText("Backend Developer · Cora")).toBeInTheDocument();
     // Applied moved to the funnel, so it is no longer an archive reason.
-    expect(within(dialog).queryByRole("radio", { name: "Already applied" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("radio", { name: "Já me candidatei" })).not.toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "Confirm archive" }));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose a reason to continue.");
+    await user.click(within(dialog).getByRole("button", { name: "Confirmar arquivamento" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Escolha um motivo para continuar.");
     expect(fetchMock).not.toHaveBeenCalled();
 
-    await user.click(within(dialog).getByRole("radio", { name: "Remote role" }));
-    expect(within(dialog).getByRole("radio", { name: "Remote role" }).closest("label")).toHaveClass("is-selected");
+    await user.click(within(dialog).getByRole("radio", { name: "Vaga remota" }));
+    expect(within(dialog).getByRole("radio", { name: "Vaga remota" }).closest("label")).toHaveClass("is-selected");
     await user.type(within(dialog).getByRole("textbox"), "Prefer hybrid");
-    await user.click(within(dialog).getByRole("button", { name: "Confirm archive" }));
+    await user.click(within(dialog).getByRole("button", { name: "Confirmar arquivamento" }));
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Backend Developer" })).not.toBeInTheDocument());
     expect(requestOf(fetchMock, 0)).toEqual({
@@ -96,14 +96,14 @@ describe("job row actions", () => {
     });
     expect((fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>)["X-CSRFToken"]).toBe("csrf-test");
 
-    expect(screen.getByText("Backend Developer archived.")).toBeInTheDocument();
-    expect(screen.getByText("Nothing here yet")).toBeInTheDocument();
+    expect(screen.getByText("Backend Developer arquivada.")).toBeInTheDocument();
+    expect(screen.getByText("Nada por aqui ainda")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Desfazer" }));
 
     expect(await screen.findByRole("button", { name: "Backend Developer" })).toBeInTheDocument();
     expect(requestOf(fetchMock, 1).url).toBe("/api/v1/jobs/42/restore");
-    await waitFor(() => expect(screen.queryByText("Backend Developer archived.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Backend Developer arquivada.")).not.toBeInTheDocument());
   });
 
   it("shows an error and keeps the modal open when archiving fails", async () => {
@@ -116,13 +116,13 @@ describe("job row actions", () => {
     );
 
     renderList();
-    await user.click(screen.getByRole("button", { name: "Archive" }));
-    const dialog = await screen.findByRole("dialog", { name: "Archive job" });
-    await user.click(within(dialog).getByRole("radio", { name: "Other" }));
-    await user.click(within(dialog).getByRole("button", { name: "Confirm archive" }));
+    await user.click(screen.getByRole("button", { name: "Arquivar" }));
+    const dialog = await screen.findByRole("dialog", { name: "Arquivar vaga" });
+    await user.click(within(dialog).getByRole("radio", { name: "Outro" }));
+    await user.click(within(dialog).getByRole("button", { name: "Confirmar arquivamento" }));
 
-    expect(await within(dialog).findByText("Something went wrong. Try again.")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Confirm archive" })).toBeEnabled();
+    expect(await within(dialog).findByText("Algo deu errado. Tente novamente.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Confirmar arquivamento" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Backend Developer" })).toBeInTheDocument();
   });
 
@@ -136,9 +136,9 @@ describe("job row actions", () => {
     });
 
     renderList();
-    await user.click(screen.getByRole("button", { name: "Applied" }));
+    await user.click(screen.getByRole("button", { name: "Já me candidatei" }));
 
-    expect(await screen.findByText("Backend Developer moved to Applications.")).toBeInTheDocument();
+    expect(await screen.findByText("Backend Developer foi para Candidaturas.")).toBeInTheDocument();
     expect(requestOf(fetchMock, 0)).toEqual({
       url: "/api/v1/jobs/42/application",
       method: "POST",
@@ -146,7 +146,7 @@ describe("job row actions", () => {
     });
     expect(screen.queryByRole("button", { name: "Backend Developer" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Desfazer" }));
 
     expect(await screen.findByRole("button", { name: "Backend Developer" })).toBeInTheDocument();
     const undo = fetchMock.mock.calls.map((call) => ({ url: String(call[0]), method: call[1]?.method }));
@@ -158,9 +158,9 @@ describe("job row actions", () => {
     fetchMock.mockImplementation(async () => envelope(makeApplication({ id: 78, status: "interest" }), 201));
 
     renderList();
-    await user.click(screen.getByRole("button", { name: "Interested" }));
+    await user.click(screen.getByRole("button", { name: "Tenho interesse" }));
 
-    expect(await screen.findByText("Backend Developer saved as Interested.")).toBeInTheDocument();
+    expect(await screen.findByText("Backend Developer salva como Tenho interesse.")).toBeInTheDocument();
     expect(requestOf(fetchMock, 0).body).toEqual({ status: "interest" });
   });
 });

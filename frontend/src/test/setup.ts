@@ -1,12 +1,31 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
-// The app defaults to Brazilian Portuguese; component tests assert the English
-// copy, so they start with English stored. Tests about the default clear it.
-beforeEach(() => {
-  window.localStorage.setItem("job-watcher-language", "en");
-});
+// The interface is Brazilian Portuguese only, so component tests assert the
+// Portuguese copy.
+
+// Node 26 no longer exposes a working window.localStorage under jsdom, which
+// breaks any test (and any component) that touches it. Provide a simple
+// in-memory Storage so the suite runs the same as on older Node.
+(() => {
+  const store = new Map<string, string>();
+  const storage: Storage = {
+    get length() {
+      return store.size;
+    },
+    clear: () => store.clear(),
+    getItem: (key) => (store.has(key) ? (store.get(key) as string) : null),
+    key: (index) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key) => void store.delete(key),
+    setItem: (key, value) => void store.set(key, String(value)),
+  };
+  try {
+    Object.defineProperty(window, "localStorage", { configurable: true, value: storage });
+  } catch {
+    /* leave whatever the environment provides */
+  }
+})();
 
 afterEach(() => {
   cleanup();
