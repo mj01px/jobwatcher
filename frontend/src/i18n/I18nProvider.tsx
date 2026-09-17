@@ -1,51 +1,29 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 
-import { readStorage, writeStorage } from "../lib/storage";
-import { translate, type Language, type TranslationKey, type TranslationVars } from "./dictionary";
-
-export const LANGUAGE_STORAGE_KEY = "job-watcher-language";
+import { translate, type TranslationKey, type TranslationVars } from "./dictionary";
 
 interface I18nValue {
-  language: Language;
-  setLanguage: (language: Language) => void;
   t: (key: TranslationKey, vars?: TranslationVars) => string;
   formatDateTime: (value: string | null | undefined) => string;
   /** Formats a date only value (YYYY-MM-DD) without shifting it across time zones. */
   formatDate: (value: string | null | undefined) => string;
-  /** Day and month only (03/09 in Portuguese), same time zone rule as formatDate. */
+  /** Day and month only (03/09), same time zone rule as formatDate. */
   formatDayMonth: (value: string | null | undefined) => string;
 }
 
 const I18nContext = createContext<I18nValue | null>(null);
 
-/** Brazilian Portuguese unless English was chosen (docs/API-v3.md, section 7). */
-export function toLanguage(value: string | null | undefined): Language {
-  return value === "en" ? "en" : "pt";
-}
-
+// The interface is Brazilian Portuguese only; there is no language switch.
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>(() => toLanguage(readStorage(LANGUAGE_STORAGE_KEY)));
-
   useEffect(() => {
-    document.documentElement.lang = language === "pt" ? "pt-BR" : "en";
-    document.documentElement.dataset.language = language;
-  }, [language]);
-
-  const setLanguage = useCallback((next: Language) => {
-    writeStorage(LANGUAGE_STORAGE_KEY, next);
-    setLanguageState(next);
+    document.documentElement.lang = "pt-BR";
+    document.documentElement.dataset.language = "pt";
   }, []);
 
   const value = useMemo<I18nValue>(() => {
-    const formatter = new Intl.DateTimeFormat(language === "pt" ? "pt-BR" : "en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-    const dateFormatter = new Intl.DateTimeFormat(language === "pt" ? "pt-BR" : "en-US", { dateStyle: "medium" });
-    const dayMonthFormatter = new Intl.DateTimeFormat(language === "pt" ? "pt-BR" : "en-US", {
-      day: "2-digit",
-      month: "2-digit",
-    });
+    const formatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" });
+    const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" });
+    const dayMonthFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
     const localDate = (raw: string): Date | null => {
       const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
       if (!match) return null;
@@ -53,9 +31,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       return Number.isNaN(date.valueOf()) ? null : date;
     };
     return {
-      language,
-      setLanguage,
-      t: (key, vars) => translate(language, key, vars),
+      t: (key, vars) => translate("pt", key, vars),
       formatDateTime: (raw) => {
         if (!raw) return "";
         const date = new Date(raw);
@@ -72,7 +48,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         return date ? dayMonthFormatter.format(date) : raw;
       },
     };
-  }, [language, setLanguage]);
+  }, []);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
