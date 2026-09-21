@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = "gemini_api_key"
 GITHUB_TOKEN = "github_token"
+OPENROUTER_API_KEY = "openrouter_api_key"
 
 ENV_VARS: dict[str, str] = {
     GEMINI_API_KEY: "GEMINI_API_KEY",
     GITHUB_TOKEN: "GITHUB_TOKEN",
+    OPENROUTER_API_KEY: "OPENROUTER_API_KEY",
 }
 
 

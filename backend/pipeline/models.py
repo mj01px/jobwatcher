@@ -92,6 +92,36 @@ class Interaction(models.Model):
         return f"{self.date} {self.title}"
 
 
+class AtsReport(models.Model):
+    """An ATS analysis of the dossier against one job. Re-running replaces it."""
+
+    job = models.ForeignKey("watcher.Job", on_delete=models.CASCADE, related_name="ats_reports")
+    # 0 to 100: how well the profile matches the job.
+    score = models.PositiveSmallIntegerField()
+    # "forte", "moderado" or "fraco" (see pipeline.ats.schema.VERDICTS).
+    verdict = models.CharField(max_length=16)
+    summary = models.TextField(default="", blank=True)
+    matched_keywords = models.JSONField(default=list, blank=True)
+    missing_keywords = models.JSONField(default=list, blank=True)
+    strengths = models.JSONField(default=list, blank=True)
+    gaps = models.JSONField(default=list, blank=True)
+    suggestions = models.JSONField(default=list, blank=True)
+    # The uploaded resume this analysis read, shown so the report says what it scored.
+    resume_filename = models.CharField(max_length=255, default="", blank=True)
+    model = models.CharField(max_length=120)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "ats_reports"
+        indexes = [models.Index(fields=["job", "-created_at"], name="idx_ats_reports_job")]
+
+    def __str__(self) -> str:
+        return f"AtsReport {self.pk} for job {self.job_id} ({self.score})"
+
+
 class Pitch(models.Model):
     """The cover letter generated for a job. Generating again replaces it."""
 

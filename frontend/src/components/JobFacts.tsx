@@ -18,18 +18,28 @@ export function KindMark({ kind }: { kind: SourceKind }) {
   return <span className={`kind-mark kind-${kind}`}>{SOURCE_KIND_LABELS[kind]}</span>;
 }
 
-/** Location, work mode and seniority, only when the job states them. */
-export function JobChips({ job }: { job: Job }) {
-  const { t } = useI18n();
-  const chips: { key: string; label: string }[] = [];
+/**
+ * Location, work mode and seniority, only when the job states them. Pass
+ * ``publishedAt`` (drawer only) to also show the publication date as a chip.
+ */
+export function JobChips({ job, publishedAt }: { job: Job; publishedAt?: string | null }) {
+  const { t, formatDate } = useI18n();
+  const chips: { key: string; label: string; className?: string }[] = [];
   if (job.location.trim()) chips.push({ key: "location", label: job.location });
   if (job.workMode !== "unknown") chips.push({ key: "workMode", label: t(`workMode.${job.workMode}`) });
   if (job.seniority !== "unknown") chips.push({ key: "seniority", label: t(`seniority.${job.seniority}`) });
+  if (publishedAt) {
+    chips.push({
+      key: "published",
+      label: `${t("detail.published")} ${formatDate(publishedAt)}`,
+      className: "fact-chip-published",
+    });
+  }
   if (chips.length === 0) return null;
   return (
     <ul className="fact-chips" aria-label={t("job.facts")}>
       {chips.map((chip) => (
-        <li key={chip.key} className="fact-chip">
+        <li key={chip.key} className={chip.className ? `fact-chip ${chip.className}` : "fact-chip"}>
           {chip.label}
         </li>
       ))}

@@ -5,6 +5,7 @@ import type {
   ApplicationDetail,
   ApplicationStatus,
   ArchiveJobInput,
+  AtsReport,
   Board,
   CheckRun,
   CreateJobInput,
@@ -99,6 +100,8 @@ function isEnvelope(value: unknown): value is Envelope<unknown> {
 
 export interface RequestOptions {
   body?: unknown;
+  /** Multipart body (file upload). The browser sets the Content-Type boundary. */
+  form?: FormData;
   query?: Record<string, string | number | undefined>;
   signal?: AbortSignal;
   keepalive?: boolean;
@@ -115,11 +118,19 @@ export async function request<T, M extends ResponseMeta = ResponseMeta>(
   }
 
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  // FormData sets its own multipart Content-Type (with the boundary); JSON we set.
+  if (options.form === undefined && options.body !== undefined) headers["Content-Type"] = "application/json";
   if (UNSAFE_METHODS.has(method)) {
     const token = await ensureCsrfCookie();
     if (token) headers[CSRF_HEADER] = token;
   }
+
+  const body =
+    options.form !== undefined
+      ? options.form
+      : options.body === undefined
+        ? undefined
+        : JSON.stringify(options.body);
 
   let response: Response;
   try {
@@ -127,7 +138,7 @@ export async function request<T, M extends ResponseMeta = ResponseMeta>(
       method,
       headers,
       credentials: "same-origin",
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body,
       signal: options.signal,
       keepalive: options.keepalive,
     });
@@ -187,6 +198,13 @@ export const api = {
   pitch: (jobId: number, signal?: AbortSignal) => request<Pitch | null>("GET", `/jobs/${jobId}/pitch`, { signal }),
   generatePitch: (jobId: number, instruction: string) =>
     request<Pitch>("POST", `/jobs/${jobId}/pitch`, { body: { instruction } }),
+  ats: (jobId: number, signal?: AbortSignal) =>
+    request<AtsReport | null>("GET", `/jobs/${jobId}/ats`, { signal }),
+  generateAts: (jobId: number, resume: File) => {
+    const form = new FormData();
+    form.append("resume", resume);
+    return request<AtsReport>("POST", `/jobs/${jobId}/ats`, { form });
+  },
 
   board: (signal?: AbortSignal) => request<Board>("GET", "/applications/board", { signal }),
   closedApplications: (signal?: AbortSignal) => request<Application[]>("GET", "/applications/closed", { signal }),

@@ -31,6 +31,7 @@ export const queryKeys = {
   jobDetail: (id: number) => ["job", id] as const,
   jobDetailAll: ["job"] as const,
   pitch: (jobId: number) => ["pitch", jobId] as const,
+  ats: (jobId: number) => ["ats", jobId] as const,
   sources: ["sources"] as const,
   checkRuns: (limit: number) => ["check-runs", limit] as const,
   checkRunsAll: ["check-runs"] as const,
@@ -348,6 +349,22 @@ export function useGeneratePitch(jobId: number) {
       queryClient.setQueryData(queryKeys.pitch(jobId), result.data);
       void queryClient.invalidateQueries({ queryKey: queryKeys.jobDetail(jobId) });
     },
+  });
+}
+
+export function useAts(jobId: number | null) {
+  return useQuery({
+    queryKey: queryKeys.ats(jobId ?? 0),
+    queryFn: async ({ signal }) => (await api.ats(jobId ?? 0, signal)).data,
+    enabled: jobId !== null,
+  });
+}
+
+export function useGenerateAts(jobId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (resume: File) => api.generateAts(jobId, resume),
+    onSuccess: (result) => queryClient.setQueryData(queryKeys.ats(jobId), result.data),
   });
 }
 

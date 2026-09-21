@@ -71,6 +71,25 @@ SYNC_DIR = os.getenv("JOB_WATCHER_SYNC_DIR")
 GUPY_API = os.getenv("GUPY_API", "https://employability-portal.gupy.io/api/v1/jobs")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
 
+# OpenRouter: one API key reaches many models, most with a free tier. It is the
+# primary AI provider; Gemini stays as a fallback. The endpoint is OpenAI
+# compatible, so we call it with plain httpx (already a dependency).
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+# Ordered fallback list. Free model IDs (ending in :free) rotate and get rate
+# limited at peak, which is exactly why we keep several: OpenRouter tries the next
+# when one is unavailable. Override in Settings or here; check the current free
+# lineup at openrouter.ai/models (filter supported_parameters=structured_outputs).
+# At most 3: OpenRouter rejects a longer models array (see openrouter.MAX_MODELS).
+# All free (:free) and JSON-capable as of 2026-09-19; verified against the live
+# models list. They rotate, so if one 404s pick a current one from
+# openrouter.ai/models (filter supported_parameters=response_format).
+OPENROUTER_MODELS = env_list(
+    "OPENROUTER_MODELS",
+    "deepseek/deepseek-v4-flash-0731:free,"
+    "google/gemma-4-31b-it:free,"
+    "nvidia/nemotron-3-super-120b-a12b:free",
+)
+
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "rest_framework",
@@ -147,8 +166,23 @@ LOGGING = {
     "formatters": {
         "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
     },
-    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
-    "root": {"handlers": ["console"], "level": os.getenv("JOB_WATCHER_LOG_LEVEL", "INFO")},
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+        # The desktop app logs to stderr, which is not captured anywhere. A rotating
+        # file in the data dir keeps the last errors for diagnosis.
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(DATA_DIR / "jobwatcher.log"),
+            "maxBytes": 1_000_000,
+            "backupCount": 2,
+            "formatter": "plain",
+            "encoding": "utf-8",
+        },
+    },
+    "root": {
+        "handlers": ["console", "file"],
+        "level": os.getenv("JOB_WATCHER_LOG_LEVEL", "INFO"),
+    },
     "loggers": {
         "apscheduler": {"level": "WARNING"},
         "httpx": {"level": "WARNING"},

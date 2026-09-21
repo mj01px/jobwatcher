@@ -9,7 +9,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from pipeline.dates import local_today
-from pipeline.models import Application, Interaction, Pitch
+from pipeline.models import Application, AtsReport, Interaction, Pitch
 from watcher.serializers import JobSerializer, first_messages
 
 NEXT_STEP_MAX = 300
@@ -87,6 +87,37 @@ class PitchSerializer(serializers.ModelSerializer):
 
     def get_chars(self, pitch: Pitch) -> int:
         return len(pitch.text)
+
+
+class AtsReportSerializer(serializers.ModelSerializer):
+    jobId = serializers.IntegerField(source="job_id")
+    matchedKeywords = serializers.ListField(
+        source="matched_keywords", child=serializers.CharField()
+    )
+    missingKeywords = serializers.ListField(
+        source="missing_keywords", child=serializers.CharField()
+    )
+    resumeFilename = serializers.CharField(source="resume_filename")
+    createdAt = serializers.DateTimeField(source="created_at")
+
+    class Meta:
+        model = AtsReport
+        fields = [
+            "id",
+            "jobId",
+            "score",
+            "verdict",
+            "summary",
+            "matchedKeywords",
+            "missingKeywords",
+            "strengths",
+            "gaps",
+            "suggestions",
+            "resumeFilename",
+            "model",
+            "createdAt",
+        ]
+        read_only_fields = fields
 
 
 def _require_object(data: Any) -> dict[str, Any]:
@@ -200,6 +231,7 @@ def validate_pitch_request(data: Any) -> str:
 
 __all__ = [
     "ApplicationSerializer",
+    "AtsReportSerializer",
     "InteractionSerializer",
     "PitchSerializer",
     "first_messages",

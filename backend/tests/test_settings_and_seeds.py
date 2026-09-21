@@ -155,11 +155,15 @@ class TestScoringSettings:
 @pytest.mark.django_db
 class TestProfileSettings:
     def test_defaults(self, api_client: APIClient) -> None:
+        from django.conf import settings
+
         assert data_of(api_client.get("/api/v1/settings/profile")) == {
             "dossier": "",
             "pitchMaxChars": 1200,
             "geminiModel": "gemini-3.7-flash",
+            "openRouterModels": list(settings.OPENROUTER_MODELS),
             "geminiConfigured": False,
+            "openRouterConfigured": False,
             "githubConfigured": False,
         }
 
@@ -202,7 +206,11 @@ class TestSecrets:
             {"geminiApiKey": " gem-123 ", "githubToken": "ghp_abc"},
             format="json",
         )
-        assert data_of(response) == {"geminiConfigured": True, "githubConfigured": True}
+        assert data_of(response) == {
+            "geminiConfigured": True,
+            "openRouterConfigured": False,
+            "githubConfigured": True,
+        }
         assert "gem-123" not in response.content.decode()
         assert json.loads(isolated_secrets.read_text(encoding="utf-8")) == {
             "gemini_api_key": "gem-123",
@@ -219,7 +227,11 @@ class TestSecrets:
         data = data_of(
             api_client.put("/api/v1/settings/secrets", {"githubToken": ""}, format="json")
         )
-        assert data == {"geminiConfigured": True, "githubConfigured": False}
+        assert data == {
+            "geminiConfigured": True,
+            "openRouterConfigured": False,
+            "githubConfigured": False,
+        }
 
     def test_env_var_wins_over_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
         set_secrets({"github_token": "from-file"})

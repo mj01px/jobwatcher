@@ -387,10 +387,15 @@ function SecretsPanel() {
   const { t } = useI18n();
   const { data } = useProfileSettings();
   const saveSecrets = useSaveSecrets();
-  const [values, setValues] = useState<Record<SecretField, string>>({ geminiApiKey: "", githubToken: "" });
+  const [values, setValues] = useState<Record<SecretField, string>>({
+    openRouterApiKey: "",
+    geminiApiKey: "",
+    githubToken: "",
+  });
   const [status, setStatus] = useState<"saved" | "failed" | null>(null);
 
   const configured: Record<SecretField, boolean> = {
+    openRouterApiKey: data?.openRouterConfigured ?? false,
     geminiApiKey: data?.geminiConfigured ?? false,
     githubToken: data?.githubConfigured ?? false,
   };
@@ -398,7 +403,7 @@ function SecretsPanel() {
   const send = (input: SecretsInput) => {
     saveSecrets.mutate(input, {
       onSuccess: () => {
-        setValues({ geminiApiKey: "", githubToken: "" });
+        setValues({ openRouterApiKey: "", geminiApiKey: "", githubToken: "" });
         setStatus("saved");
       },
       onError: () => setStatus("failed"),
@@ -408,6 +413,7 @@ function SecretsPanel() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const input: SecretsInput = {};
+    if (values.openRouterApiKey.trim()) input.openRouterApiKey = values.openRouterApiKey.trim();
     if (values.geminiApiKey.trim()) input.geminiApiKey = values.geminiApiKey.trim();
     if (values.githubToken.trim()) input.githubToken = values.githubToken.trim();
     if (Object.keys(input).length === 0) return;
@@ -415,6 +421,7 @@ function SecretsPanel() {
   };
 
   const fields: { key: SecretField; label: TranslationKey; help: TranslationKey }[] = [
+    { key: "openRouterApiKey", label: "secrets.openRouter", help: "secrets.openRouterHelp" },
     { key: "geminiApiKey", label: "secrets.gemini", help: "secrets.geminiHelp" },
     { key: "githubToken", label: "secrets.github", help: "secrets.githubHelp" },
   ];

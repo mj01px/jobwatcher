@@ -8,10 +8,14 @@ from typing import Any
 from django.db.models import Count, QuerySet
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from pipeline.ai.providers.base import LLMNotConfiguredError, LLMUnavailableError
+from pipeline.ats.resume import ResumeError, extract_resume_text
+from pipeline.ats.service import analyze_and_save
 from pipeline.dates import local_today
 from pipeline.models import ACTIVE_STATUSES, CLOSED_STATUSES, Application, Interaction
 from pipeline.pitch.dossier import DossierEmptyError
@@ -19,6 +23,7 @@ from pipeline.pitch.gemini import GeminiNotConfiguredError, GeminiUnavailableErr
 from pipeline.pitch.service import generate_and_save
 from pipeline.serializers import (
     ApplicationSerializer,
+    AtsReportSerializer,
     InteractionSerializer,
     PitchSerializer,
     validate_application_create,
@@ -32,6 +37,7 @@ from watcher.models import Job
 
 # One generation at a time: it takes seconds and burns free tier quota.
 _pitch_lock = threading.Lock()
+_ats_lock = threading.Lock()
 
 
 def applications_queryset() -> QuerySet[Application]:
@@ -198,3 +204,49 @@ class JobPitchView(APIView):
         finally:
             _pitch_lock.release()
         return envelope_response(PitchSerializer(pitch).data, status_code=status.HTTP_201_CREATED)
+
+
+class JobAtsView(APIView):
+    # The analysis reads an uploaded resume file, not a JSON body.
+    parser_classes = [MultiPartParser]
+
+    def get(self, _: Request, job_id: int) -> Response:
+        job = _job_or_404(job_id)
+        report = job.ats_reports.order_by("-created_at", "-id").first()  # type: ignore[attr-defined]
+        return envelope_response(AtsReportSerializer(report).data if report else None)
+
+    def post(self, request: Request, job_id: int) -> Response:
+        job = _job_or_404(job_id)
+        upload = request.FILES.get("resume")
+        if upload is None:
+            raise ApiError(
+                status.HTTP_400_BAD_REQUEST,
+                "RESUME_REQUIRED",
+                "Attach a resume file (PDF, DOCX or TXT) to analyze.",
+            )
+        try:
+            resume_text = extract_resume_text(upload.name, upload.read())
+        except ResumeError as error:
+            raise ApiError(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "RESUME_INVALID", str(error)
+            ) from error
+
+        if not _ats_lock.acquire(blocking=False):
+            raise ApiError(
+                status.HTTP_409_CONFLICT,
+                "ATS_IN_PROGRESS",
+                "An ATS analysis is already running",
+            )
+        try:
+            report = analyze_and_save(job, resume_text, upload.name or "")
+        except LLMNotConfiguredError as error:
+            raise ApiError(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "AI_NOT_CONFIGURED", str(error)
+            ) from error
+        except LLMUnavailableError as error:
+            raise ApiError(status.HTTP_502_BAD_GATEWAY, "AI_UNAVAILABLE", str(error)) from error
+        finally:
+            _ats_lock.release()
+        return envelope_response(
+            AtsReportSerializer(report).data, status_code=status.HTTP_201_CREATED
+        )

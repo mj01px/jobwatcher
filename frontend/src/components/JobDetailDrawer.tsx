@@ -3,6 +3,7 @@ import { useId, useRef } from "react";
 import { useJobDetail } from "../api/hooks";
 import type { Job } from "../api/types";
 import { useI18n } from "../i18n/I18nProvider";
+import { AtsPanel } from "./AtsPanel";
 import { companyLine, JobChips, KindMark, ScoreBadge, ScoreTags } from "./JobFacts";
 import { Modal } from "./Modal";
 import { OpenJobLink } from "./OpenJobLink";
@@ -16,7 +17,7 @@ interface JobDetailDrawerProps {
 
 /** Side panel with the job description, score tags and the cover letter. */
 export function JobDetailDrawer({ job, open, onClose }: JobDetailDrawerProps) {
-  const { t, formatDateTime } = useI18n();
+  const { t } = useI18n();
   const titleId = `${useId()}-title`;
   const closeRef = useRef<HTMLButtonElement>(null);
   const { data: detail, isPending, isError } = useJobDetail(open && job ? job.id : null);
@@ -47,22 +48,7 @@ export function JobDetailDrawer({ job, open, onClose }: JobDetailDrawerProps) {
             </button>
           </div>
 
-          <JobChips job={shown} />
-
-          <dl className="detail-facts">
-            <div>
-              <dt>{t("detail.source")}</dt>
-              <dd>{shown.sourceName}</dd>
-            </div>
-            <div>
-              <dt>{t("detail.published")}</dt>
-              <dd>{shown.publishedAt ? formatDateTime(shown.publishedAt) : t("detail.unknown")}</dd>
-            </div>
-            <div>
-              <dt>{t("job.firstSeen")}</dt>
-              <dd>{formatDateTime(shown.firstSeenAt)}</dd>
-            </div>
-          </dl>
+          <JobChips job={shown} publishedAt={shown.publishedAt} />
 
           <OpenJobLink job={shown} />
 
@@ -84,6 +70,7 @@ export function JobDetailDrawer({ job, open, onClose }: JobDetailDrawerProps) {
             ) : null}
           </section>
 
+          {open && job ? <AtsPanel jobId={job.id} /> : null}
           {open && job ? <PitchPanel jobId={job.id} /> : null}
         </div>
       ) : null}

@@ -79,6 +79,28 @@ export interface Pitch {
   createdAt: string;
 }
 
+export type AtsVerdict = "forte" | "moderado" | "fraco";
+
+export interface AtsReport {
+  id: number;
+  jobId: number;
+  /** 0 to 100: how well the profile matches the job. */
+  score: number;
+  verdict: AtsVerdict;
+  summary: string;
+  /** Requirements the dossier supports. */
+  matchedKeywords: string[];
+  /** Requirements the job asks for that the dossier does not support. */
+  missingKeywords: string[];
+  strengths: string[];
+  gaps: string[];
+  suggestions: string[];
+  /** The uploaded resume file this analysis read. */
+  resumeFilename: string;
+  model: string;
+  createdAt: string;
+}
+
 export type JobDetail = Job & { description: string; pitch: Pitch | null };
 
 export interface Source {
@@ -231,7 +253,9 @@ export interface ProfileSettings {
   dossier: string;
   pitchMaxChars: number;
   geminiModel: string;
+  openRouterModels: string[];
   geminiConfigured: boolean;
+  openRouterConfigured: boolean;
   githubConfigured: boolean;
 }
 
@@ -243,11 +267,13 @@ export interface SaveProfileInput {
 
 export interface SecretsInput {
   geminiApiKey?: string;
+  openRouterApiKey?: string;
   githubToken?: string;
 }
 
 export interface SecretsStatus {
   geminiConfigured: boolean;
+  openRouterConfigured: boolean;
   githubConfigured: boolean;
 }
 
@@ -273,6 +299,10 @@ export type ApiErrorCode =
   | "INVALID_ARCHIVE_REASON"
   | "DOSSIER_EMPTY"
   | "GEMINI_NOT_CONFIGURED"
+  | "AI_NOT_CONFIGURED"
+  | "ATS_IN_PROGRESS"
+  | "RESUME_REQUIRED"
+  | "RESUME_INVALID"
   | "AI_UNAVAILABLE"
   | "INTERNAL_ERROR"
   | "ERROR"

@@ -13,11 +13,17 @@ from watcher.constants import (
     DOSSIER_KEY,
     GEMINI_MODEL_KEY,
     NOTIFICATIONS_ENABLED_KEY,
+    OPENROUTER_MODELS_KEY,
     OVERDUE_NOTICE_LAST_ON_KEY,
     PITCH_MAX_CHARS_KEY,
 )
 from watcher.models import Setting
-from watcher.services.secrets import GEMINI_API_KEY, GITHUB_TOKEN, is_configured
+from watcher.services.secrets import (
+    GEMINI_API_KEY,
+    GITHUB_TOKEN,
+    OPENROUTER_API_KEY,
+    is_configured,
+)
 
 
 def get_setting(key: str, default: Any = None) -> Any:
@@ -50,6 +56,20 @@ def get_gemini_model() -> str:
     )
 
 
+def get_openrouter_models() -> list[str]:
+    """Ordered OpenRouter model slugs to try, from settings then the configured default.
+
+    The default already carries several free models so a single one being rate
+    limited does not break generation.
+    """
+    value = get_setting(OPENROUTER_MODELS_KEY)
+    if isinstance(value, list):
+        models = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+        if models:
+            return models
+    return list(django_settings.OPENROUTER_MODELS)
+
+
 def notifications_enabled() -> bool:
     value = get_setting(NOTIFICATIONS_ENABLED_KEY, True)
     return value if isinstance(value, bool) else True
@@ -79,7 +99,9 @@ def profile_payload() -> dict[str, Any]:
         "dossier": get_dossier(),
         "pitchMaxChars": get_pitch_max_chars(),
         "geminiModel": get_gemini_model(),
+        "openRouterModels": get_openrouter_models(),
         "geminiConfigured": is_configured(GEMINI_API_KEY),
+        "openRouterConfigured": is_configured(OPENROUTER_API_KEY),
         "githubConfigured": is_configured(GITHUB_TOKEN),
     }
 
@@ -87,5 +109,6 @@ def profile_payload() -> dict[str, Any]:
 def secrets_payload() -> dict[str, bool]:
     return {
         "geminiConfigured": is_configured(GEMINI_API_KEY),
+        "openRouterConfigured": is_configured(OPENROUTER_API_KEY),
         "githubConfigured": is_configured(GITHUB_TOKEN),
     }

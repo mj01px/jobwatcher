@@ -16,6 +16,9 @@ VISIT_PREVIOUS_END_KEY = "visit_previous_end_at"
 DOSSIER_KEY = "dossier"
 PITCH_MAX_CHARS_KEY = "pitch_max_chars"
 GEMINI_MODEL_KEY = "gemini_model"
+# Ordered list of OpenRouter model slugs tried for a generation. The first is the
+# primary; the rest are OpenRouter's own fallbacks (used on rate limit or downtime).
+OPENROUTER_MODELS_KEY = "openrouter_models"
 
 # v2 used 20. Measured on real data: with the stack gate, 25 keeps developer
 # jobs and drops the long tail of weak matches.

@@ -472,7 +472,11 @@ def validate_secrets(data: Any) -> dict[str, str]:
     body = _require_object(data)
     errors: dict[str, str] = {}
     values: dict[str, str] = {}
-    for field, name in (("geminiApiKey", "gemini_api_key"), ("githubToken", "github_token")):
+    for field, name in (
+        ("geminiApiKey", "gemini_api_key"),
+        ("openRouterApiKey", "openrouter_api_key"),
+        ("githubToken", "github_token"),
+    ):
         if field not in body:
             continue
         value = body[field]
