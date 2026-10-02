@@ -25,12 +25,15 @@ from watcher.services.secrets import OPENROUTER_API_KEY, get_secret
 
 logger = logging.getLogger(__name__)
 
-# A normal generation is a few seconds; the ceiling stops a hung request from
-# blocking the request thread forever.
-TIMEOUT_SECONDS = 90.0
-# The ATS answer is a small JSON object, but it now carries a short reasoning
-# field. A generous ceiling avoids cutting the JSON off mid-object.
-MAX_OUTPUT_TOKENS = 2000
+# A normal generation is a few seconds. A free model that stalls should be cut
+# loose quickly so the run can fall back to the next model or to Gemini, instead
+# of parking the request thread (and the user) for a minute and a half.
+TIMEOUT_SECONDS = 45.0
+# The ATS answer is a small JSON object, but the free models are reasoning models
+# that spend output tokens thinking before the JSON. Too low a ceiling cuts the
+# JSON off mid-object (finish_reason "length"), wasting the whole call; 4000
+# leaves room for the reasoning plus the object.
+MAX_OUTPUT_TOKENS = 4000
 # Low temperature: the ATS should be repeatable, not creative.
 DEFAULT_TEMPERATURE = 0.2
 MAX_ATTEMPTS = 3

@@ -403,7 +403,14 @@ class DesktopApp:
                 )
                 _build_frontend()
             _configure_environment()
-            server = create_server(_router(_django(), self.show), sockets=[sock], threads=8)
+            # channel_timeout defaults to 120s, but a resume ATS analysis holds
+            # the request open while the AI providers answer and can run longer
+            # (a free model that stalls, then the Gemini fallback). Without a
+            # higher ceiling waitress drops the connection mid-analysis and the
+            # UI shows an error even though the report was produced.
+            server = create_server(
+                _router(_django(), self.show), sockets=[sock], threads=8, channel_timeout=300
+            )
             threading.Thread(target=server.run, daemon=True, name="waitress").start()
             self.worker.start()
             self.sync.start()
