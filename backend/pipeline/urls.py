@@ -12,6 +12,7 @@ urlpatterns = [
     ),
     path("jobs/<int:job_id>/pitch", views.JobPitchView.as_view(), name="job-pitch"),
     path("jobs/<int:job_id>/ats", views.JobAtsView.as_view(), name="job-ats"),
+    path("jobs/<int:job_id>/resume", views.JobResumeView.as_view(), name="job-resume"),
     path("applications/board", views.ApplicationBoardView.as_view(), name="applications-board"),
     path("applications/closed", views.ApplicationClosedView.as_view(), name="applications-closed"),
     path(

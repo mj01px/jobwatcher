@@ -8,3 +8,5 @@ google-genai==2.21.0
 # Resume text extraction for the ATS (pure Python, no system libraries).
 pypdf==5.9.0
 python-docx==1.2.0
+# Tailored-resume PDF generation (pure Python, no system libraries).
+reportlab==5.0.1

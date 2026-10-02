@@ -6,6 +6,7 @@ import threading
 from typing import Any
 
 from django.db.models import Count, QuerySet
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser
@@ -21,6 +22,7 @@ from pipeline.models import ACTIVE_STATUSES, CLOSED_STATUSES, Application, Inter
 from pipeline.pitch.dossier import DossierEmptyError
 from pipeline.pitch.gemini import GeminiNotConfiguredError, GeminiUnavailableError
 from pipeline.pitch.service import generate_and_save
+from pipeline.resume_tailor.service import build_filename, generate_tailored_pdf
 from pipeline.serializers import (
     ApplicationSerializer,
     AtsReportSerializer,
@@ -38,6 +40,7 @@ from watcher.models import Job
 # One generation at a time: it takes seconds and burns free tier quota.
 _pitch_lock = threading.Lock()
 _ats_lock = threading.Lock()
+_resume_lock = threading.Lock()
 
 
 def applications_queryset() -> QuerySet[Application]:
@@ -250,3 +253,46 @@ class JobAtsView(APIView):
         return envelope_response(
             AtsReportSerializer(report).data, status_code=status.HTTP_201_CREATED
         )
+
+
+class JobResumeView(APIView):
+    """Tailor the uploaded resume to this job and return it as a PDF download."""
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request: Request, job_id: int) -> HttpResponse:
+        job = _job_or_404(job_id)
+        upload = request.FILES.get("resume")
+        if upload is None:
+            raise ApiError(
+                status.HTTP_400_BAD_REQUEST,
+                "RESUME_REQUIRED",
+                "Attach a resume file (PDF, DOCX or TXT) to tailor.",
+            )
+        try:
+            resume_text = extract_resume_text(upload.name, upload.read())
+        except ResumeError as error:
+            raise ApiError(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "RESUME_INVALID", str(error)
+            ) from error
+
+        if not _resume_lock.acquire(blocking=False):
+            raise ApiError(
+                status.HTTP_409_CONFLICT,
+                "RESUME_IN_PROGRESS",
+                "A resume is already being generated",
+            )
+        try:
+            pdf, tailored = generate_tailored_pdf(job, resume_text)
+        except LLMNotConfiguredError as error:
+            raise ApiError(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "AI_NOT_CONFIGURED", str(error)
+            ) from error
+        except LLMUnavailableError as error:
+            raise ApiError(status.HTTP_502_BAD_GATEWAY, "AI_UNAVAILABLE", str(error)) from error
+        finally:
+            _resume_lock.release()
+
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{build_filename(tailored, job)}"'
+        return response
