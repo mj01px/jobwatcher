@@ -64,12 +64,32 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 def _openrouter_json(system: str, user: str) -> Completion:
-    return openrouter.complete(
-        system,
-        user,
-        models=get_openrouter_models(),
-        response_format=_JSON_RESPONSE_FORMAT,
-    )
+    """Try the configured models in fixed order, one request each, and return the
+    first whose text parses as a JSON object.
+
+    One request per model in a fixed order, rather than handing OpenRouter the
+    whole list and letting its router pick, is what keeps a score reproducible:
+    the same model answers whenever it is up, instead of whichever the router
+    happened to route to that minute. Measured, model choice was the whole source
+    of the ATS variance (a model that scored ~15-20 points apart from the next).
+    A model that is unavailable or returns unparseable JSON hands off to the next
+    in line; only when none answer does OpenRouter fail and Gemini take over.
+    """
+    models = get_openrouter_models()[: openrouter.MAX_MODELS]
+    if not models:
+        raise LLMUnavailableError("No OpenRouter model configured.")
+    last_error: Exception = LLMUnavailableError("No OpenRouter model answered.")
+    for model in models:
+        try:
+            completion = openrouter.complete(
+                system, user, models=[model], response_format=_JSON_RESPONSE_FORMAT
+            )
+            _extract_json(completion.text)  # accept this model only if its JSON parses
+            return completion
+        except (LLMUnavailableError, ValueError) as error:
+            logger.warning("OpenRouter model %s unusable: %s", model, error)
+            last_error = error
+    raise LLMUnavailableError(str(last_error))
 
 
 def _gemini_json(system: str, user: str) -> Completion:

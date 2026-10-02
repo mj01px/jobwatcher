@@ -222,6 +222,62 @@ class TestProviderFallback:
             ai_client.generate_json("sys", "user")
 
 
+@pytest.mark.django_db
+class TestOpenRouterFixedOrder:
+    """One request per model in a fixed order, so the same model answers every run."""
+
+    def _models(self, monkeypatch: pytest.MonkeyPatch, models: list[str]) -> None:
+        monkeypatch.setattr(ai_client, "get_openrouter_models", lambda: models)
+
+    def test_first_available_model_answers_and_stops(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._models(monkeypatch, ["a/one", "b/two", "c/three"])
+        tried: list[str] = []
+
+        def fake(s: str, u: str, *, models: list[str], **kw: Any) -> Completion:
+            tried.append(models[0])
+            return Completion('{"score": 70}', models[0], 1, 2)
+
+        monkeypatch.setattr(openrouter, "complete", fake)
+        comp = ai_client._openrouter_json("s", "u")
+        assert comp.model == "a/one"
+        assert tried == ["a/one"]  # a single model, sent alone (not OpenRouter's router)
+
+    def test_unavailable_model_hands_off_to_next(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._models(monkeypatch, ["a/one", "b/two"])
+        tried: list[str] = []
+
+        def fake(s: str, u: str, *, models: list[str], **kw: Any) -> Completion:
+            tried.append(models[0])
+            if models[0] == "a/one":
+                raise LLMUnavailableError("429")
+            return Completion('{"score": 50}', models[0], 1, 2)
+
+        monkeypatch.setattr(openrouter, "complete", fake)
+        comp = ai_client._openrouter_json("s", "u")
+        assert comp.model == "b/two"
+        assert tried == ["a/one", "b/two"]
+
+    def test_unparseable_model_hands_off_to_next(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._models(monkeypatch, ["a/one", "b/two"])
+
+        def fake(s: str, u: str, *, models: list[str], **kw: Any) -> Completion:
+            text = "desculpe, sem json" if models[0] == "a/one" else '{"score": 60}'
+            return Completion(text, models[0], 1, 2)
+
+        monkeypatch.setattr(openrouter, "complete", fake)
+        assert ai_client._openrouter_json("s", "u").model == "b/two"
+
+    def test_all_models_failing_raises_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._models(monkeypatch, ["a/one", "b/two"])
+
+        def fake(s: str, u: str, *, models: list[str], **kw: Any) -> Completion:
+            raise LLMUnavailableError("down")
+
+        monkeypatch.setattr(openrouter, "complete", fake)
+        with pytest.raises(LLMUnavailableError):
+            ai_client._openrouter_json("s", "u")
+
+
 class TestResumeExtraction:
     def test_plain_text(self) -> None:
         assert "Python" in extract_resume_text("cv.txt", RESUME_TEXT.encode("utf-8"))
