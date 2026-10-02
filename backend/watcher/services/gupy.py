@@ -1,28 +1,30 @@
-"""Gupy collector: one source per search term on the public Gupy job portal (from Vaggio).
+"""Gupy collector: one source per search term on the public Gupy job portal.
 
-Endpoint confirmed on 2026-09-02::
+The old REST API (``employability-portal.gupy.io/api/v1/jobs``) was retired and
+now answers 404. The portal moved to a Next.js app and serves the same search
+data through its data route, measured 2026-10-02::
 
-    GET https://employability-portal.gupy.io/api/v1/jobs?jobName=<term>&offset=0&limit=100
+    GET https://portal.gupy.io/_next/data/<buildId>/job-search/term=<term>.json?page=<N>
 
-It returns ``{"data": [...], "pagination": {"total": N, "limit": L, "offset": O}}``.
-The search parameter is ``jobName`` (``name`` answers 400).
+It returns ``{"pageProps": {"initialJobList": {"data": [...],
+"pagination": {"total": N, "limit": 12, "offset": O}}}}``. Each item carries the
+same fields the old API did (``id``, ``name``, ``jobUrl``, ``careerPageName``,
+``city``, ``state``, ``country``, ``publishedDate``, ``workplaceType``, ``type``,
+``description``), so :func:`parse_item` is unchanged.
 
-What the API accepts, measured rather than assumed:
+What the route accepts, measured rather than assumed:
 
-- ``limit`` goes up to 100; 200 answers 400.
-- ``offset`` really paginates, pages never overlap.
-- ``pagination.total`` is NOT reliable: with ``limit`` of 40 or more it comes back
-  pinned at 100 even when 650 results exist (measured on "desenvolvedor":
-  ``limit=1`` says 650, ``limit=100`` says 100). Stopping on that field cost 550
-  jobs on a single term. The only reliable stop is a short page.
-- There is no sort nor date parameter (``sort``, ``orderBy``, ``publishedDate``
-  answer 400), so recency is cut on our side (30 day max age).
-- ``jobName`` is optional, but without it the API returns the whole portal
-  (82,536 jobs on 2026-09-03). The term stays the filter.
-- Filters that exist only narrow: ``workplaceType=remote`` and
-  ``isRemoteWork=true``. ``jobType``, ``careerPageId``, ``publishedSince``,
-  ``skill`` and ``label`` answer 400; ``city``, ``state`` and ``country`` answer 200
-  with zero results.
+- ``<term>`` lives in the path, URL encoded (spaces and accents included);
+  without it the route is a different page, so the term stays the filter.
+- ``page`` is the only pagination knob. ``limit`` is pinned at 12 and
+  ``offset``/``perPage``/``pageSize`` are ignored, so a term is swept 12 jobs at
+  a time.
+- ``pagination.total`` is still NOT reliable: a large term comes back pinned at
+  100 ("desenvolvedor" measured 100 with 12 per page). The only reliable stop is
+  a short page.
+- ``<buildId>`` is Next.js' deploy hash. It is part of the path and rotates on
+  every Gupy deploy, so it is scraped from the portal HTML once per term rather
+  than hardcoded.
 
 A search is never authoritative: a job missing from one response does not mean
 it closed, so Gupy jobs are only archived by the age rule.
@@ -42,10 +44,12 @@ How the default terms were picked (measured 2026-09-03 counting unique URLs):
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 from django.conf import settings
@@ -101,13 +105,12 @@ DEFAULT_SEARCHES: list[str] = [
     "estagio dados",
 ]
 
-# API ceiling. Asking for more answers 400.
-PAGE_SIZE = 100
-# Safety lock: 20 pages of 100 is more than twice the largest measured term
-# ("desenvolvedor", 662). It exists so a wrong ``total`` never loops forever.
-MAX_PAGES_PER_SEARCH = 20
-# A failing page must not take the rest of the term with it: "desenvolvedor" is
-# 7 pages, giving up on the third costs 400 jobs.
+# The portal's fixed page size. ``limit`` is ignored; ``?page=N`` is the only knob.
+PAGE_SIZE = 12
+# Safety lock: 50 pages of 12 is 600 jobs, more than any term returns in the
+# 30 day window we keep. It exists so a wrong ``total`` never loops forever.
+MAX_PAGES_PER_SEARCH = 50
+# A failing page must not take the rest of the term with it.
 ATTEMPTS_PER_PAGE = 3
 RETRY_WAITS: tuple[float, ...] = (1.0, 3.0)
 
@@ -117,30 +120,84 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
 )
 
+# The deploy hash sits in the portal HTML as ``"buildId":"<hash>"``.
+BUILD_ID_RE = re.compile(r'"buildId"\s*:\s*"([^"]+)"')
+
+
+class HttpResponse(Protocol):
+    @property
+    def text(self) -> str: ...
+    def raise_for_status(self) -> Any: ...
+    def json(self) -> Any: ...
+
 
 class HttpClient(Protocol):
     def get(self, url: str, params: dict[str, Any] | None = ...) -> Any: ...
 
 
 def build_client() -> httpx.Client:
-    # The portal wants a browser looking client, otherwise the API answers 403.
+    # The portal wants a browser looking client, otherwise it answers 403.
     return httpx.Client(
         timeout=REQUEST_TIMEOUT,
         follow_redirects=True,
         headers={
             "User-Agent": USER_AGENT,
-            "Accept": "application/json",
+            "Accept": "text/html,application/json,*/*",
             "Origin": "https://portal.gupy.io",
             "Referer": "https://portal.gupy.io/",
         },
     )
 
 
+def data_url(portal: str, build_id: str, term: str) -> str:
+    """The Next.js data route for one search term (the term lives in the path)."""
+    return f"{portal}/_next/data/{build_id}/job-search/term={quote(term, safe='')}.json"
+
+
+def resolve_build_id(
+    client: HttpClient,
+    portal: str,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
+    """Scrape the portal's current Next.js build id.
+
+    It is part of the data route path and rotates on every Gupy deploy, so it is
+    read fresh rather than hardcoded.
+
+    Raises:
+        CollectionError: when the portal HTML never answers or carries no build id.
+    """
+    url = f"{portal}/job-search"
+    last_error = ""
+    for attempt in range(ATTEMPTS_PER_PAGE):
+        try:
+            response = client.get(url)
+            response.raise_for_status()
+            match = BUILD_ID_RE.search(response.text)
+            if match:
+                return match.group(1)
+            last_error = "no buildId in portal HTML"
+        except Exception as error:  # noqa: BLE001 - any failure is retried
+            last_error = str(error) or type(error).__name__
+        logger.warning(
+            "gupy build id, attempt %s of %s: %s", attempt + 1, ATTEMPTS_PER_PAGE, last_error
+        )
+        if attempt < ATTEMPTS_PER_PAGE - 1:
+            sleep(RETRY_WAITS[min(attempt, len(RETRY_WAITS) - 1)])
+    raise CollectionError(f"Gupy portal build id unavailable: {last_error}")
+
+
 def extract_list(payload: Any) -> list[Any]:
-    """The API already changed its envelope once. Accept the known variants."""
+    """Dig the job list out of the data route envelope (and legacy variants)."""
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
+        page_props = payload.get("pageProps")
+        if isinstance(page_props, dict):
+            job_list = page_props.get("initialJobList")
+            if isinstance(job_list, dict) and isinstance(job_list.get("data"), list):
+                return job_list["data"]
         for key in ("data", "results", "jobs", "items"):
             value = payload.get(key)
             if isinstance(value, list):
@@ -177,7 +234,7 @@ def parse_item(item: Any) -> CollectedJob | None:
     location = ", ".join(
         str(part) for part in (item.get("city"), item.get("state"), item.get("country")) if part
     )
-    if item.get("isRemoteWork"):
+    if item.get("isRemoteWork") or item.get("workplaceType") == "remote":
         location = f"Remoto{', ' + location if location else ''}"
 
     skills: Any = item.get("skills") or []
@@ -203,11 +260,11 @@ def parse_item(item: Any) -> CollectedJob | None:
 
 def fetch_page(
     client: HttpClient,
-    api: str,
+    portal: str,
+    build_id: str,
     term: str,
-    offset: int,
+    page: int,
     *,
-    per_page: int = PAGE_SIZE,
     sleep: Callable[[float], None] = time.sleep,
 ) -> tuple[Any, str | None]:
     """One page, retried when the answer does not come.
@@ -215,20 +272,19 @@ def fetch_page(
     Returns:
         ``(payload, None)`` on success or ``(None, error)`` after giving up.
     """
+    url = data_url(portal, build_id, term)
     last_error = ""
     for attempt in range(ATTEMPTS_PER_PAGE):
         try:
-            response = client.get(
-                api, params={"jobName": term, "offset": offset, "limit": per_page}
-            )
+            response = client.get(url, params={"page": page})
             response.raise_for_status()
             return response.json(), None
         except Exception as error:  # noqa: BLE001 - any failure of the page is retried
             last_error = str(error) or type(error).__name__
             logger.warning(
-                "gupy %r offset %s, attempt %s of %s: %s",
+                "gupy %r page %s, attempt %s of %s: %s",
                 term,
-                offset,
+                page,
                 attempt + 1,
                 ATTEMPTS_PER_PAGE,
                 last_error,
@@ -242,30 +298,31 @@ def collect_term(
     client: HttpClient,
     term: str,
     *,
-    api: str | None = None,
-    per_page: int = PAGE_SIZE,
+    portal: str | None = None,
+    build_id: str | None = None,
     max_pages: int = MAX_PAGES_PER_SEARCH,
     sleep: Callable[[float], None] = time.sleep,
 ) -> CollectorResult:
     """Sweep a whole term, page by page, stopping on the first short page.
 
     Raises:
-        CollectionError: when the first page never answers (nothing to apply).
+        CollectionError: when the build id or the first page never answers
+            (nothing to apply).
     """
-    endpoint = (api or settings.GUPY_API).rstrip("/")
-    per_page = min(per_page, PAGE_SIZE)
+    base = (portal or settings.GUPY_API).rstrip("/")
+    if build_id is None:
+        build_id = resolve_build_id(client, base, sleep=sleep)
     jobs: dict[str, CollectedJob] = {}
     warning: str | None = None
-    offset = 0
 
-    for page_index in range(max_pages):
-        payload, error = fetch_page(client, endpoint, term, offset, per_page=per_page, sleep=sleep)
+    for page in range(1, max_pages + 1):
+        payload, error = fetch_page(client, base, build_id, term, page, sleep=sleep)
         if payload is None:
-            if page_index == 0:
+            if page == 1:
                 raise CollectionError(f"Gupy search {term!r} did not answer: {error}")
             # Partial failure: keep what arrived, but the run must not pass for
-            # a quiet day because the API went down halfway.
-            warning = f"Gupy search {term!r} stopped at offset {offset}: {error}"
+            # a quiet day because the portal went down halfway.
+            warning = f"Gupy search {term!r} stopped at page {page}: {error}"
             break
 
         items = extract_list(payload)
@@ -275,9 +332,8 @@ def collect_term(
             job = parse_item(item)
             if job is not None:
                 jobs.setdefault(job.key, job)
-        if len(items) < per_page:
+        if len(items) < PAGE_SIZE:
             break
-        offset += len(items)
 
     return CollectorResult(jobs=list(jobs.values()), authoritative=False, warning=warning)
 

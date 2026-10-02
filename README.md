@@ -195,8 +195,8 @@ GEMINI_MODEL=gemini-3.7-flash
 # Without it the API allows 60 requests/hour, with it 5000
 GITHUB_TOKEN=
 
-# Gupy portal endpoint, only if it ever moves
-GUPY_API=https://employability-portal.gupy.io/api/v1/jobs
+# Gupy portal base URL, only if it ever moves
+GUPY_API=https://portal.gupy.io
 
 # Built frontend served by Django (default: ../frontend/dist)
 JOB_WATCHER_FRONTEND_DIST=

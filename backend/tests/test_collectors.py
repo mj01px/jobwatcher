@@ -15,10 +15,17 @@ def no_sleep(_seconds: float) -> None:
     return None
 
 
+ATTEMPTS = gupy.ATTEMPTS_PER_PAGE
+BUILD_ID = "testbuildid"
+# The portal HTML the collector scrapes the build id from.
+PORTAL_HTML = f'<html><script>{{"buildId":"{BUILD_ID}","other":1}}</script></html>'
+
+
 class FakeResponse:
-    def __init__(self, payload: Any, status_code: int = 200) -> None:
+    def __init__(self, payload: Any, status_code: int = 200, text: str = "") -> None:
         self._payload = payload
         self.status_code = status_code
+        self.text = text
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -29,16 +36,23 @@ class FakeResponse:
 
 
 class FakeClient:
-    """Returns pages in order and records the params of every call."""
+    """Returns the portal HTML then the data pages in order, recording each call.
 
-    def __init__(self, pages: list[Any]) -> None:
+    The first ``get`` (no params) answers the build id HTML; the rest answer the
+    queued data pages, so a test lists only the search pages it expects.
+    """
+
+    def __init__(self, pages: list[Any], *, html: str = PORTAL_HTML) -> None:
         self.pages = list(pages)
+        self.html = html
         self.calls: list[dict[str, Any]] = []
 
     def get(
         self, url: str, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None
     ) -> FakeResponse:
         self.calls.append({"url": url, "headers": headers or {}, **(params or {})})
+        if params is None and "_next/data" not in url:
+            return FakeResponse(None, text=self.html)
         if not self.pages:
             raise AssertionError("page requested past the end: the collector did not stop")
         page = self.pages.pop(0)
@@ -47,15 +61,19 @@ class FakeClient:
 
 def gupy_page(count: int, first_id: int = 0) -> dict[str, Any]:
     return {
-        "pagination": {"total": 100, "limit": 100, "offset": 0},
-        "data": [
-            {
-                "id": first_id + index,
-                "name": f"Desenvolvedor {first_id + index}",
-                "jobUrl": f"https://acme.gupy.io/job/{first_id + index}",
+        "pageProps": {
+            "initialJobList": {
+                "pagination": {"total": 100, "limit": 12, "offset": first_id},
+                "data": [
+                    {
+                        "id": first_id + index,
+                        "name": f"Desenvolvedor {first_id + index}",
+                        "jobUrl": f"https://acme.gupy.io/job/{first_id + index}",
+                    }
+                    for index in range(count)
+                ],
             }
-            for index in range(count)
-        ],
+        }
     }
 
 
@@ -84,94 +102,117 @@ class TestKeys:
         assert manual_key("https://x.test/1").startswith("manual:")
 
 
+def data_pages(client: FakeClient) -> list[int]:
+    """The ``page`` numbers of the search requests, ignoring the build id fetch."""
+    return [call["page"] for call in client.calls if "page" in call]
+
+
+class TestGupyBuildId:
+    def test_build_id_is_scraped_and_used_in_the_data_url(self) -> None:
+        client = FakeClient([gupy_page(4)])
+        gupy.collect_term(client, "python", portal="x", sleep=no_sleep)
+        # First call fetches the portal HTML, no page param.
+        assert "_next/data" not in client.calls[0]["url"]
+        assert "page" not in client.calls[0]
+        # The data call carries the scraped build id in the path.
+        data_call = client.calls[1]
+        assert f"/_next/data/{BUILD_ID}/job-search/term=python.json" in data_call["url"]
+        assert data_call["page"] == 1
+
+    def test_term_is_url_encoded_in_the_path(self) -> None:
+        client = FakeClient([gupy_page(4)])
+        gupy.collect_term(client, "analista de sistemas", portal="x", sleep=no_sleep)
+        assert "term=analista%20de%20sistemas.json" in client.calls[1]["url"]
+
+    def test_missing_build_id_raises(self) -> None:
+        client = FakeClient([gupy_page(4)], html="<html>no build id here</html>")
+        with pytest.raises(CollectionError, match="build id"):
+            gupy.collect_term(client, "python", portal="x", sleep=no_sleep)
+
+
 class TestGupyPagination:
     def test_sweeps_the_whole_term(self) -> None:
-        client = FakeClient([gupy_page(100, 0), gupy_page(100, 100), gupy_page(50, 200)])
-        result = gupy.collect_term(client, "desenvolvedor", api="https://gupy.test", sleep=no_sleep)
-        assert len(result.jobs) == 250
-        assert [call["offset"] for call in client.calls] == [0, 100, 200]
-        assert {call["limit"] for call in client.calls} == {100}
-        assert {call["jobName"] for call in client.calls} == {"desenvolvedor"}
+        client = FakeClient([gupy_page(12, 0), gupy_page(12, 12), gupy_page(4, 24)])
+        result = gupy.collect_term(client, "desenvolvedor", portal="x", sleep=no_sleep)
+        assert len(result.jobs) == 28
+        assert data_pages(client) == [1, 2, 3]
         assert result.authoritative is False
         assert result.warning is None
 
     def test_does_not_trust_the_envelope_total(self) -> None:
-        # Gupy pins total=100 with a high limit even when 650 exist.
-        client = FakeClient([gupy_page(100, 0), gupy_page(30, 100)])
-        result = gupy.collect_term(client, "desenvolvedor", api="https://gupy.test", sleep=no_sleep)
-        assert len(result.jobs) == 130
-        assert len(client.calls) == 2
+        # The portal pins total=100 even on a term with a handful of pages.
+        client = FakeClient([gupy_page(12, 0), gupy_page(5, 12)])
+        result = gupy.collect_term(client, "desenvolvedor", portal="x", sleep=no_sleep)
+        assert len(result.jobs) == 17
+        assert data_pages(client) == [1, 2]
 
     def test_stops_on_short_page(self) -> None:
-        client = FakeClient([gupy_page(40)])
-        assert len(gupy.collect_term(client, "python", api="x", sleep=no_sleep).jobs) == 40
-        assert len(client.calls) == 1
+        client = FakeClient([gupy_page(5)])
+        assert len(gupy.collect_term(client, "python", portal="x", sleep=no_sleep).jobs) == 5
+        assert data_pages(client) == [1]
 
     def test_stops_on_empty_page(self) -> None:
-        client = FakeClient([gupy_page(100), gupy_page(0)])
-        assert len(gupy.collect_term(client, "python", api="x", sleep=no_sleep).jobs) == 100
-        assert len(client.calls) == 2
+        client = FakeClient([gupy_page(12), gupy_page(0)])
+        assert len(gupy.collect_term(client, "python", portal="x", sleep=no_sleep).jobs) == 12
+        assert data_pages(client) == [1, 2]
 
     def test_respects_the_page_lock(self) -> None:
-        client = FakeClient([gupy_page(100, index * 100) for index in range(10)])
-        result = gupy.collect_term(client, "python", api="x", max_pages=3, sleep=no_sleep)
-        assert len(result.jobs) == 300
-        assert len(client.calls) == 3
-
-    def test_limit_is_capped_at_the_api_ceiling(self) -> None:
-        client = FakeClient([gupy_page(10)])
-        gupy.collect_term(client, "python", api="x", per_page=500, sleep=no_sleep)
-        assert client.calls[0]["limit"] == 100
+        client = FakeClient([gupy_page(12, index * 12) for index in range(10)])
+        result = gupy.collect_term(client, "python", portal="x", max_pages=3, sleep=no_sleep)
+        assert len(result.jobs) == 36
+        assert data_pages(client) == [1, 2, 3]
 
     def test_first_page_failure_raises(self) -> None:
-        class BrokenClient:
-            def get(self, *args: Any, **kwargs: Any) -> Any:
-                raise RuntimeError("503")
-
+        client = FakeClient([FakeResponse(None, status_code=503) for _ in range(ATTEMPTS)])
         with pytest.raises(CollectionError, match="503"):
-            gupy.collect_term(BrokenClient(), "python", api="x", sleep=no_sleep)
+            gupy.collect_term(client, "python", portal="x", sleep=no_sleep)
 
     def test_retries_a_page_before_giving_up(self) -> None:
         """A page that chokes once must not take the rest of the term."""
 
         class UnstableClient:
             def __init__(self) -> None:
-                self.offsets: list[int] = []
+                self.pages: list[int] = []
                 self.failed = False
 
             def get(self, url: str, params: dict[str, Any] | None = None) -> FakeResponse:
-                assert params is not None
-                self.offsets.append(params["offset"])
-                if params["offset"] == 100 and not self.failed:
+                if params is None:
+                    return FakeResponse(None, text=PORTAL_HTML)
+                page = params["page"]
+                self.pages.append(page)
+                if page == 2 and not self.failed:
                     self.failed = True
                     raise RuntimeError("timeout")
-                count = 30 if params["offset"] >= 200 else 100
-                return FakeResponse(gupy_page(count, params["offset"]))
+                count = 4 if page >= 3 else 12
+                return FakeResponse(gupy_page(count, (page - 1) * 12))
 
         client = UnstableClient()
         waits: list[float] = []
-        result = gupy.collect_term(client, "desenvolvedor", api="x", sleep=waits.append)
-        assert len(result.jobs) == 230
-        assert client.offsets == [0, 100, 100, 200]
+        result = gupy.collect_term(client, "desenvolvedor", portal="x", sleep=waits.append)
+        assert len(result.jobs) == 28
+        assert client.pages == [1, 2, 2, 3]
         assert waits == [1.0]
         assert result.warning is None
 
     def test_later_page_failure_keeps_jobs_with_a_warning(self) -> None:
         class FailsSecondPage:
             def get(self, url: str, params: dict[str, Any] | None = None) -> FakeResponse:
-                assert params is not None
-                if params["offset"] == 100:
+                if params is None:
+                    return FakeResponse(None, text=PORTAL_HTML)
+                if params["page"] == 2:
                     raise RuntimeError("503")
-                return FakeResponse(gupy_page(100))
+                return FakeResponse(gupy_page(12))
 
-        result = gupy.collect_term(FailsSecondPage(), "python", api="x", sleep=no_sleep)
-        assert len(result.jobs) == 100
+        result = gupy.collect_term(FailsSecondPage(), "python", portal="x", sleep=no_sleep)
+        assert len(result.jobs) == 12
         assert result.warning is not None
-        assert "offset 100" in result.warning
+        assert "page 2" in result.warning
 
     def test_duplicate_ids_are_collapsed(self) -> None:
-        client = FakeClient([{"data": gupy_page(5)["data"] + gupy_page(5)["data"]}])
-        assert len(gupy.collect_term(client, "python", api="x", sleep=no_sleep).jobs) == 5
+        dupes = gupy_page(5)["pageProps"]["initialJobList"]["data"]
+        page = {"pageProps": {"initialJobList": {"data": dupes + dupes}}}
+        client = FakeClient([page])
+        assert len(gupy.collect_term(client, "python", portal="x", sleep=no_sleep).jobs) == 5
 
 
 class TestGupyParsing:
@@ -202,10 +243,12 @@ class TestGupyParsing:
         assert gupy.parse_item({"name": "Dev"}) is None
 
     def test_envelope_variants(self) -> None:
+        assert gupy.extract_list({"pageProps": {"initialJobList": {"data": [1, 2]}}}) == [1, 2]
         assert gupy.extract_list({"data": [1, 2]}) == [1, 2]
         assert gupy.extract_list({"results": [3]}) == [3]
         assert gupy.extract_list([4]) == [4]
         assert gupy.extract_list({"other": "thing"}) == []
+        assert gupy.extract_list({"pageProps": {"initialJobList": {}}}) == []
 
     def test_strip_html(self) -> None:
         assert gupy.strip_html("<p>Ola &amp;   mundo</p>") == "Ola & mundo"

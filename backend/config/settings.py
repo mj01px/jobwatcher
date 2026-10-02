@@ -67,8 +67,9 @@ SECRETS_FILE = Path(os.getenv("JOB_WATCHER_SECRETS_FILE", str(DATA_DIR / "secret
 # Cross-machine sync folder (a cloud-synced directory such as Google Drive). When
 # unset, watcher.services.sync auto-detects Google Drive; empty disables sync.
 SYNC_DIR = os.getenv("JOB_WATCHER_SYNC_DIR")
-# If the Gupy portal endpoint ever moves, override it here.
-GUPY_API = os.getenv("GUPY_API", "https://employability-portal.gupy.io/api/v1/jobs")
+# Base URL of the Gupy portal. The collector reads its Next.js build id and the
+# per-term data route from here. If the portal ever moves, override it.
+GUPY_API = os.getenv("GUPY_API", "https://portal.gupy.io")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
 
 # OpenRouter: one API key reaches many models, most with a free tier. It is the
