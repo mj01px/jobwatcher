@@ -186,6 +186,18 @@ PROFILE: ScoringProfile = {
     },
 }
 
+# Mismatch penalties are trustworthy in the title but noisy in the body: a job
+# can list ".net" as a nice-to-have, or "comercial" as the name of a department,
+# without being that stack or area. Measured on the real feed, counting these two
+# groups' body hits at half weight recovers genuine Python/stack jobs that an
+# incidental mention had buried (e.g. a "Back-end Python" role penalised by a lone
+# "ruby on rails" in the description) without letting off-area roles cross the
+# highlight line. The title still counts full, since there the term is a real
+# signal. Kept here in code rather than in the editable profile because the
+# settings validator rebuilds each group with only weight and terms.
+BODY_PENALTY_FACTOR = 0.5
+DAMPENED_BODY_GROUPS: tuple[str, ...] = ("stack_mismatch", "area_mismatch")
+
 # Required years of experience: each band above 2 years pulls the job down.
 YEARS_RE = re.compile(r"(\d+)\s*\+?\s*anos?\s+de\s+(experi|atua|vivenc)", re.IGNORECASE)
 

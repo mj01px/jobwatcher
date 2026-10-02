@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from watcher.scoring.profile import (
+    BODY_PENALTY_FACTOR,
+    DAMPENED_BODY_GROUPS,
     PROFILE,
     SENIORITY_TERMS,
     WORK_MODE_TERMS,
@@ -49,7 +51,13 @@ def score_groups(
             in_title = contains(title, term_normalized)
             if not (in_title or contains(body, term_normalized)):
                 continue
-            score += weight * 2 if in_title else weight
+            if in_title:
+                score += weight * 2
+            elif key in DAMPENED_BODY_GROUPS:
+                # Noisy penalty seen only in the body: count it at half weight.
+                score += round(weight * BODY_PENALTY_FACTOR)
+            else:
+                score += weight
             if weight > 0:
                 if term_normalized not in tags:
                     tags.append(term_normalized)

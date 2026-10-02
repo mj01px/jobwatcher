@@ -56,6 +56,19 @@ class TestScoreText:
         with_php, _ = score_text("python junior php", "")
         assert with_php < positive
 
+    def test_mismatch_penalty_is_halved_in_the_body(self) -> None:
+        # stack_mismatch is -20: a real signal in the title (double), but often an
+        # incidental mention in the body, so there it counts at half weight.
+        in_title, _ = score_text("php", "")
+        in_body, _ = score_text("", "php")
+        assert in_title == -40
+        assert in_body == -10
+
+    def test_non_mismatch_penalty_is_not_dampened_in_the_body(self) -> None:
+        # level_too_high (-25) is not a mismatch group: the body still counts full.
+        in_body, _ = score_text("", "senior")
+        assert in_body == -25
+
     def test_custom_profile(self) -> None:
         profile = {"stack": {"weight": 7, "terms": ["elixir"]}}
         assert score_text("elixir dev", "", profile) == (14, ["elixir"])
