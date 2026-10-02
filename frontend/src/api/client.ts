@@ -182,6 +182,63 @@ export async function request<T, M extends ResponseMeta = ResponseMeta>(
   return { data: payload.data as T, meta };
 }
 
+/** Pull the download filename out of a Content-Disposition header. */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const value = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header)?.[1];
+  return value ? decodeURIComponent(value) : null;
+}
+
+/** POST a resume and get back the tailored PDF as a blob (errors are JSON envelopes). */
+async function requestResumePdf(
+  jobId: number,
+  resume: File,
+): Promise<{ blob: Blob; filename: string }> {
+  const form = new FormData();
+  form.append("resume", resume);
+  const token = await ensureCsrfCookie();
+  const headers: Record<string, string> = {};
+  if (token) headers[CSRF_HEADER] = token;
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/jobs/${jobId}/resume`, {
+      method: "POST",
+      headers,
+      credentials: "same-origin",
+      body: form,
+    });
+  } catch (error) {
+    throw new ApiError("NETWORK_ERROR", `Request to /jobs/${jobId}/resume failed`, {
+      status: 0,
+      cause: error,
+    });
+  }
+
+  if (!response.ok) {
+    let code: ApiErrorCode = "INTERNAL_ERROR";
+    let message = `HTTP ${response.status}`;
+    try {
+      const payload: unknown = await response.json();
+      if (isEnvelope(payload) && payload.error) {
+        code = payload.error.code;
+        message = payload.error.message;
+      }
+    } catch {
+      // Non-JSON error body: keep the generic defaults.
+    }
+    throw new ApiError(code, message, {
+      status: response.status,
+      requestId: response.headers.get("X-Request-ID"),
+    });
+  }
+
+  const blob = await response.blob();
+  const filename =
+    filenameFromDisposition(response.headers.get("Content-Disposition")) ?? "curriculo.pdf";
+  return { blob, filename };
+}
+
 export const api = {
   status: (signal?: AbortSignal) => request<MonitorStatus>("GET", "/status", { signal }),
   overview: (signal?: AbortSignal) => request<Overview>("GET", "/overview", { signal }),
@@ -205,6 +262,7 @@ export const api = {
     form.append("resume", resume);
     return request<AtsReport>("POST", `/jobs/${jobId}/ats`, { form });
   },
+  generateResume: (jobId: number, resume: File) => requestResumePdf(jobId, resume),
 
   board: (signal?: AbortSignal) => request<Board>("GET", "/applications/board", { signal }),
   closedApplications: (signal?: AbortSignal) => request<Application[]>("GET", "/applications/closed", { signal }),

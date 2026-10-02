@@ -368,6 +368,23 @@ export function useGenerateAts(jobId: number) {
   });
 }
 
+/** Tailor the uploaded resume to this job and download the resulting PDF. */
+export function useGenerateResume(jobId: number) {
+  return useMutation({
+    mutationFn: (resume: File) => api.generateResume(jobId, resume),
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    },
+  });
+}
+
 function useInvalidateSources() {
   const queryClient = useQueryClient();
   return async () => {

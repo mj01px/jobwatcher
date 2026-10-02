@@ -2,7 +2,7 @@ import { useId, useRef, useState, type ChangeEvent } from "react";
 import { Link } from "react-router";
 
 import { ApiError } from "../api/client";
-import { useAts, useGenerateAts } from "../api/hooks";
+import { useAts, useGenerateAts, useGenerateResume } from "../api/hooks";
 import type { AtsVerdict } from "../api/types";
 import type { TranslationKey } from "../i18n/dictionary";
 import { useI18n } from "../i18n/I18nProvider";
@@ -70,8 +70,10 @@ export function AtsPanel({ jobId }: { jobId: number }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { data: report, isPending, isError } = useAts(jobId);
   const analyze = useGenerateAts(jobId);
+  const generate = useGenerateResume(jobId);
   const [file, setFile] = useState<File | null>(null);
   const [problem, setProblem] = useState<AtsErrorKind | null>(null);
+  const busy = analyze.isPending || generate.isPending;
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     setFile(event.target.files?.[0] ?? null);
@@ -85,6 +87,15 @@ export function AtsPanel({ jobId }: { jobId: number }) {
       return;
     }
     analyze.mutate(file, { onError: (error) => setProblem(errorKind(error)) });
+  };
+
+  const handleGenerate = () => {
+    setProblem(null);
+    if (!file) {
+      setProblem("resumeRequired");
+      return;
+    }
+    generate.mutate(file, { onError: (error) => setProblem(errorKind(error)) });
   };
 
   return (
@@ -111,13 +122,22 @@ export function AtsPanel({ jobId }: { jobId: number }) {
         <button
           type="button"
           className="button button-primary"
-          disabled={analyze.isPending}
+          disabled={busy}
           onClick={handleAnalyze}
         >
           {analyze.isPending ? t("ats.analyzing") : report ? t("ats.reanalyze") : t("ats.analyze")}
         </button>
+        <button
+          type="button"
+          className="button button-quiet"
+          disabled={busy}
+          onClick={handleGenerate}
+        >
+          {generate.isPending ? t("ats.generatingResume") : t("ats.generateResume")}
+        </button>
       </div>
       <p className="field-hint">{t("ats.fileHint")}</p>
+      <p className="field-hint">{t("ats.resumeHint")}</p>
 
       {problem === "resumeRequired" ? (
         <p className="form-error" role="alert">
@@ -146,6 +166,7 @@ export function AtsPanel({ jobId }: { jobId: number }) {
       ) : null}
 
       {analyze.isPending ? <p className="panel-note">{t("ats.working")}</p> : null}
+      {generate.isPending ? <p className="panel-note">{t("ats.resumeWorking")}</p> : null}
       {isError ? <p className="load-error">{t("common.loadFailed")}</p> : null}
       {!isPending && !isError && !report && !analyze.isPending ? (
         <p className="panel-empty">{t("ats.empty")}</p>
