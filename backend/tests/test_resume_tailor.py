@@ -7,14 +7,15 @@ out valid and the candidate's text survives into it.
 from __future__ import annotations
 
 import io
+import time
 from typing import Any
 
 import pytest
 from pypdf import PdfReader
 from rest_framework.test import APIClient
 
-from pipeline.ai.providers.base import Completion, LLMNotConfiguredError, LLMUnavailableError
-from pipeline.resume_tailor import prompt, schema, service
+from pipeline.ai.providers.base import Completion, LLMUnavailableError
+from pipeline.resume_tailor import jobs, prompt, schema, service
 from pipeline.resume_tailor.render import render_pdf
 from pipeline.resume_tailor.schema import Entry, TailoredResume, normalize
 from tests.conftest import MakeJob
@@ -137,25 +138,73 @@ class TestPrompt:
         assert "Desenvolvedor Python Pleno" in text  # the job title, via describe_job
 
 
+def _upload(text: str = "Desenvolvedor back-end Python Django PostgreSQL. " * 6) -> Any:
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    return SimpleUploadedFile("cv.txt", text.encode(), content_type="text/plain")
+
+
+@pytest.fixture
+def clean_store() -> Any:
+    jobs._jobs.clear()
+    jobs._running = False
+    yield
+    jobs._jobs.clear()
+    jobs._running = False
+
+
+class TestResumeJobs:
+    """The background runner, with the generation itself mocked."""
+
+    def test_start_runs_and_finishes(
+        self, job: Job, clean_store: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            jobs, "generate_tailored_pdf", lambda j, t: (b"%PDF-1.4 x", TailoredResume(name="X"))
+        )
+        monkeypatch.setattr(jobs, "build_filename", lambda r, j: "x.pdf")
+        token = jobs.start(job, "resume text")
+        result = _await_terminal(token)
+        assert (result.status, result.filename) == ("done", "x.pdf")
+        assert result.pdf == b"%PDF-1.4 x"
+
+    def test_failure_becomes_an_error_job(
+        self, job: Job, clean_store: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(j: Job, t: str) -> Any:
+            raise LLMUnavailableError("down")
+
+        monkeypatch.setattr(jobs, "generate_tailored_pdf", boom)
+        result = _await_terminal(jobs.start(job, "resume text"))
+        assert (result.status, result.error_code) == ("error", "AI_UNAVAILABLE")
+
+    def test_only_one_runs_at_a_time(self, job: Job, clean_store: Any) -> None:
+        jobs._running = True  # pretend a generation is in flight
+        with pytest.raises(jobs.ResumeBusyError):
+            jobs.start(job, "resume text")
+
+
+def _await_terminal(token: str, tries: int = 100) -> Any:
+    for _ in range(tries):
+        result = jobs._jobs.get(token)
+        if result is not None and result.status != "pending":
+            return result
+        time.sleep(0.02)
+    raise AssertionError("generation did not finish")
+
+
 @pytest.mark.django_db
 class TestEndpoint:
-    def _resume(self, text: str = "Desenvolvedor back-end Python Django PostgreSQL. " * 6) -> Any:
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
-        return SimpleUploadedFile("cv.txt", text.encode(), content_type="text/plain")
-
     def _url(self, job: Job) -> str:
         return f"/api/v1/jobs/{job.id}/resume"
 
-    def test_returns_a_pdf_download(self, job: Job, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            service, "generate_json", lambda s, u: (RAW, Completion("{}", "m", 1, 2))
-        )
-        res = APIClient().post(self._url(job), {"resume": self._resume()}, format="multipart")
-        assert res.status_code == 200
-        assert res["Content-Type"] == "application/pdf"
-        assert ".pdf" in res["Content-Disposition"]
-        assert res.content.startswith(b"%PDF")
+    def test_post_starts_and_returns_a_token(
+        self, job: Job, clean_store: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(jobs, "start", lambda j, t: "tok123")
+        res = APIClient().post(self._url(job), {"resume": _upload()}, format="multipart")
+        assert res.status_code == 202
+        assert res.json()["data"]["token"] == "tok123"
 
     def test_missing_file_is_400(self, job: Job) -> None:
         res = APIClient().post(self._url(job), {}, format="multipart")
@@ -163,25 +212,54 @@ class TestEndpoint:
         assert res.json()["error"]["code"] == "RESUME_REQUIRED"
 
     def test_unreadable_resume_is_422(self, job: Job) -> None:
-        upload = self._resume("short")
-        res = APIClient().post(self._url(job), {"resume": upload}, format="multipart")
+        res = APIClient().post(self._url(job), {"resume": _upload("short")}, format="multipart")
         assert res.status_code == 422
         assert res.json()["error"]["code"] == "RESUME_INVALID"
 
-    def test_ai_not_configured_is_503(self, job: Job, monkeypatch: pytest.MonkeyPatch) -> None:
-        def boom(_s: str, _u: str) -> Any:
-            raise LLMNotConfiguredError("no key")
+    def test_busy_is_409(self, job: Job, monkeypatch: pytest.MonkeyPatch) -> None:
+        def busy(j: Job, t: str) -> Any:
+            raise jobs.ResumeBusyError("already running")
 
-        monkeypatch.setattr(service, "generate_json", boom)
-        res = APIClient().post(self._url(job), {"resume": self._resume()}, format="multipart")
-        assert res.status_code == 503
-        assert res.json()["error"]["code"] == "AI_NOT_CONFIGURED"
+        monkeypatch.setattr(jobs, "start", busy)
+        res = APIClient().post(self._url(job), {"resume": _upload()}, format="multipart")
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "RESUME_IN_PROGRESS"
 
-    def test_ai_unavailable_is_502(self, job: Job, monkeypatch: pytest.MonkeyPatch) -> None:
-        def boom(_s: str, _u: str) -> Any:
-            raise LLMUnavailableError("down")
 
-        monkeypatch.setattr(service, "generate_json", boom)
-        res = APIClient().post(self._url(job), {"resume": self._resume()}, format="multipart")
-        assert res.status_code == 502
-        assert res.json()["error"]["code"] == "AI_UNAVAILABLE"
+@pytest.mark.django_db
+class TestStatusEndpoint:
+    def _url(self, job: Job, token: str) -> str:
+        return f"/api/v1/jobs/{job.id}/resume/{token}"
+
+    def test_pending_is_202(self, job: Job, clean_store: Any) -> None:
+        jobs._jobs["t"] = jobs.ResumeJob(status="pending")
+        res = APIClient().get(self._url(job, "t"))
+        assert res.status_code == 202
+        assert res.json()["data"]["status"] == "pending"
+
+    def test_done_returns_the_pdf_once(self, job: Job, clean_store: Any) -> None:
+        jobs._jobs["t"] = jobs.ResumeJob(status="done", pdf=b"%PDF-1.4 x", filename="cv.pdf")
+        res = APIClient().get(self._url(job, "t"))
+        assert res.status_code == 200
+        assert res["Content-Type"] == "application/pdf"
+        assert "cv.pdf" in res["Content-Disposition"]
+        assert res.content == b"%PDF-1.4 x"
+        # one-shot: the token is gone afterwards.
+        assert APIClient().get(self._url(job, "t")).status_code == 404
+
+    def test_unknown_token_is_404(self, job: Job, clean_store: Any) -> None:
+        res = APIClient().get(self._url(job, "nope"))
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "RESUME_NOT_FOUND"
+
+    @pytest.mark.parametrize(
+        ("code", "expected"),
+        [("AI_UNAVAILABLE", 502), ("AI_NOT_CONFIGURED", 503), ("INTERNAL_ERROR", 500)],
+    )
+    def test_error_maps_to_status(
+        self, job: Job, clean_store: Any, code: str, expected: int
+    ) -> None:
+        jobs._jobs["t"] = jobs.ResumeJob(status="error", error_code=code, error_message="x")
+        res = APIClient().get(self._url(job, "t"))
+        assert res.status_code == expected
+        assert res.json()["error"]["code"] == code

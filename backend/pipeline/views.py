@@ -22,7 +22,8 @@ from pipeline.models import ACTIVE_STATUSES, CLOSED_STATUSES, Application, Inter
 from pipeline.pitch.dossier import DossierEmptyError
 from pipeline.pitch.gemini import GeminiNotConfiguredError, GeminiUnavailableError
 from pipeline.pitch.service import generate_and_save
-from pipeline.resume_tailor.service import build_filename, generate_tailored_pdf
+from pipeline.resume_tailor import jobs as resume_jobs
+from pipeline.resume_tailor.jobs import ResumeBusyError
 from pipeline.serializers import (
     ApplicationSerializer,
     AtsReportSerializer,
@@ -38,9 +39,9 @@ from watcher.api import ApiError, envelope_response
 from watcher.models import Job
 
 # One generation at a time: it takes seconds and burns free tier quota.
+# (Resume generation serialises itself in pipeline.resume_tailor.jobs.)
 _pitch_lock = threading.Lock()
 _ats_lock = threading.Lock()
-_resume_lock = threading.Lock()
 
 
 def applications_queryset() -> QuerySet[Application]:
@@ -255,12 +256,23 @@ class JobAtsView(APIView):
         )
 
 
+_RESUME_ERROR_STATUS = {
+    "AI_NOT_CONFIGURED": status.HTTP_503_SERVICE_UNAVAILABLE,
+    "AI_UNAVAILABLE": status.HTTP_502_BAD_GATEWAY,
+}
+
+
 class JobResumeView(APIView):
-    """Tailor the uploaded resume to this job and return it as a PDF download."""
+    """Start tailoring the uploaded resume to this job; the client polls the status.
+
+    Generation takes up to ~100s, which outlives the webview's request timeout, so
+    the POST only kicks it off and returns a token. The PDF is fetched from
+    :class:`JobResumeStatusView`.
+    """
 
     parser_classes = [MultiPartParser]
 
-    def post(self, request: Request, job_id: int) -> HttpResponse:
+    def post(self, request: Request, job_id: int) -> Response:
         job = _job_or_404(job_id)
         upload = request.FILES.get("resume")
         if upload is None:
@@ -276,23 +288,36 @@ class JobResumeView(APIView):
                 status.HTTP_422_UNPROCESSABLE_ENTITY, "RESUME_INVALID", str(error)
             ) from error
 
-        if not _resume_lock.acquire(blocking=False):
-            raise ApiError(
-                status.HTTP_409_CONFLICT,
-                "RESUME_IN_PROGRESS",
-                "A resume is already being generated",
-            )
         try:
-            pdf, tailored = generate_tailored_pdf(job, resume_text)
-        except LLMNotConfiguredError as error:
+            token = resume_jobs.start(job, resume_text)
+        except ResumeBusyError as error:
             raise ApiError(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "AI_NOT_CONFIGURED", str(error)
+                status.HTTP_409_CONFLICT, "RESUME_IN_PROGRESS", str(error)
             ) from error
-        except LLMUnavailableError as error:
-            raise ApiError(status.HTTP_502_BAD_GATEWAY, "AI_UNAVAILABLE", str(error)) from error
-        finally:
-            _resume_lock.release()
+        return envelope_response({"token": token}, status_code=status.HTTP_202_ACCEPTED)
 
-        response = HttpResponse(pdf, content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="{build_filename(tailored, job)}"'
+
+class JobResumeStatusView(APIView):
+    """Poll a resume generation: 202 while pending, the PDF when done, an error otherwise."""
+
+    def get(self, _: Request, job_id: int, token: str) -> HttpResponse:
+        _job_or_404(job_id)
+        result = resume_jobs.take(token)
+        if result is None:
+            raise ApiError(
+                status.HTTP_404_NOT_FOUND,
+                "RESUME_NOT_FOUND",
+                "This resume generation is unknown or has expired. Start it again.",
+            )
+        if result.status == "pending":
+            return envelope_response({"status": "pending"}, status_code=status.HTTP_202_ACCEPTED)
+        if result.status == "error":
+            raise ApiError(
+                _RESUME_ERROR_STATUS.get(result.error_code, status.HTTP_500_INTERNAL_SERVER_ERROR),
+                result.error_code or "INTERNAL_ERROR",
+                result.error_message or "Resume generation failed",
+            )
+
+        response = HttpResponse(result.pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{result.filename}"'
         return response

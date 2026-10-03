@@ -189,24 +189,22 @@ function filenameFromDisposition(header: string | null): string | null {
   return value ? decodeURIComponent(value) : null;
 }
 
-/** POST a resume and get back the tailored PDF as a blob (errors are JSON envelopes). */
-async function requestResumePdf(
-  jobId: number,
-  resume: File,
-): Promise<{ blob: Blob; filename: string }> {
-  const form = new FormData();
-  form.append("resume", resume);
-  const token = await ensureCsrfCookie();
-  const headers: Record<string, string> = {};
-  if (token) headers[CSRF_HEADER] = token;
+const RESUME_POLL_INTERVAL_MS = 2000;
+const RESUME_POLL_TIMEOUT_MS = 4 * 60_000; // the AI can take ~100s; give it headroom
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** One poll of a resume generation: the PDF when ready, null while still pending. */
+async function pollResumePdf(
+  jobId: number,
+  token: string,
+): Promise<{ blob: Blob; filename: string } | null> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}/jobs/${jobId}/resume`, {
-      method: "POST",
-      headers,
+    response = await fetch(`${API_BASE}/jobs/${jobId}/resume/${token}`, {
+      method: "GET",
+      headers: { Accept: "application/pdf, application/json" },
       credentials: "same-origin",
-      body: form,
     });
   } catch (error) {
     throw new ApiError("NETWORK_ERROR", `Request to /jobs/${jobId}/resume failed`, {
@@ -214,6 +212,8 @@ async function requestResumePdf(
       cause: error,
     });
   }
+
+  if (response.status === 202) return null; // still generating
 
   if (!response.ok) {
     let code: ApiErrorCode = "INTERNAL_ERROR";
@@ -237,6 +237,32 @@ async function requestResumePdf(
   const filename =
     filenameFromDisposition(response.headers.get("Content-Disposition")) ?? "curriculo.pdf";
   return { blob, filename };
+}
+
+/**
+ * Start a tailored-resume generation and poll until the PDF is ready.
+ *
+ * Generation runs in the background on the server (it can take ~100s), so a plain
+ * request would outlive the webview's timeout. The POST returns a token; we then
+ * poll for the PDF.
+ */
+async function requestResumePdf(
+  jobId: number,
+  resume: File,
+): Promise<{ blob: Blob; filename: string }> {
+  const form = new FormData();
+  form.append("resume", resume);
+  const { data } = await request<{ token: string }>("POST", `/jobs/${jobId}/resume`, { form });
+
+  const deadline = Date.now() + RESUME_POLL_TIMEOUT_MS;
+  for (;;) {
+    await delay(RESUME_POLL_INTERVAL_MS);
+    const result = await pollResumePdf(jobId, data.token);
+    if (result) return result;
+    if (Date.now() > deadline) {
+      throw new ApiError("AI_UNAVAILABLE", "Resume generation timed out", { status: 504 });
+    }
+  }
 }
 
 export const api = {
