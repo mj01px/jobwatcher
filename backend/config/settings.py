@@ -81,14 +81,18 @@ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 # when one is unavailable. Override in Settings or here; check the current free
 # lineup at openrouter.ai/models (filter supported_parameters=structured_outputs).
 # At most 3: OpenRouter rejects a longer models array (see openrouter.MAX_MODELS).
-# All free (:free) and JSON-capable as of 2026-09-19; verified against the live
-# models list. They rotate, so if one 404s pick a current one from
-# openrouter.ai/models (filter supported_parameters=response_format).
+# Tried in order; the first that answers with valid JSON wins. All free (:free).
+# north-mini-code leads because, measured 2026-10-03 on the resume generator (a
+# ~3.5 KB JSON that the other free models truncate or break), it was the one that
+# returned valid JSON, and fast (~23s); the others stay as fallbacks. Free models
+# rotate and 404 when demoted (deepseek-v4-flash-0731:free did), so if one fails
+# pick a current one from openrouter.ai/models (filter the :free, JSON-capable
+# lineup) or set OPENROUTER_MODELS / Settings.
 OPENROUTER_MODELS = env_list(
     "OPENROUTER_MODELS",
-    "deepseek/deepseek-v4-flash-0731:free,"
-    "google/gemma-4-31b-it:free,"
-    "nvidia/nemotron-3-super-120b-a12b:free",
+    "cohere/north-mini-code:free,"
+    "nvidia/nemotron-3-super-120b-a12b:free,"
+    "google/gemma-4-31b-it:free",
 )
 
 INSTALLED_APPS = [
