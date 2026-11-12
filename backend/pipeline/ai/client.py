@@ -12,8 +12,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from collections.abc import Callable
 from typing import Any
 
+from pipeline.ai.deadline import call_with_deadline
 from pipeline.ai.providers import openrouter
 from pipeline.ai.providers.base import (
     Completion,
@@ -146,3 +149,120 @@ def generate_json(system: str, user: str) -> tuple[dict[str, Any], Completion]:
     raise LLMUnavailableError(
         f"No AI provider could produce a valid answer ({last_error})."
     ) from last_error
+
+
+# Floor below which a provider is not worth starting: it could not answer in time
+# and would only push the request past the caller's deadline.
+_MIN_PROVIDER_SECONDS = 5.0
+# Cap for one OpenRouter model. A free model was measured at ~38s for a letter, so
+# the cap is generous; a stalled one still leaves time for the next when budget allows.
+_OPENROUTER_TEXT_MODEL_SECONDS = 30.0
+# Free text is the whole point here (a cover letter), unlike the ATS JSON.
+_TEXT_TEMPERATURE = 0.7
+
+
+def _gemini_text(system: str, user: str, budget: float) -> Completion:
+    from pipeline.pitch.gemini import (
+        GeminiNotConfiguredError,
+        GeminiUnavailableError,
+        generate_text,
+    )
+
+    try:
+        generated = generate_text(system, user, get_gemini_model(), timeout=budget)
+    except GeminiNotConfiguredError as error:  # pragma: no cover - guarded by is_configured
+        raise LLMNotConfiguredError(str(error)) from error
+    except GeminiUnavailableError as error:
+        raise LLMUnavailableError(str(error)) from error
+    return Completion(
+        text=generated.text,
+        model=generated.model,
+        input_tokens=generated.input_tokens,
+        output_tokens=generated.output_tokens,
+        thinking_tokens=generated.thinking_tokens,
+    )
+
+
+def _openrouter_text(
+    system: str, user: str, deadline: float, clock: Callable[[], float]
+) -> Completion:
+    """Try the configured models in order, one request each, until one answers
+    or the deadline leaves no room for another."""
+    models = get_openrouter_models()[: openrouter.MAX_MODELS]
+    if not models:
+        raise LLMUnavailableError("No OpenRouter model configured.")
+    last_error: Exception = LLMUnavailableError("No OpenRouter model answered in time.")
+    for model in models:
+        remaining = deadline - clock()
+        if remaining < _MIN_PROVIDER_SECONDS:
+            break
+        cap = min(remaining, _OPENROUTER_TEXT_MODEL_SECONDS)
+        try:
+            return call_with_deadline(
+                lambda model=model, cap=cap: openrouter.complete(
+                    system,
+                    user,
+                    models=[model],
+                    temperature=_TEXT_TEMPERATURE,
+                    max_attempts=1,
+                    timeout=cap,
+                ),
+                cap,
+            )
+        except TimeoutError as error:
+            logger.warning("OpenRouter model %s timed out after %.0fs", model, cap)
+            last_error = LLMUnavailableError(f"OpenRouter model {model} timed out ({cap:.0f}s).")
+            last_error.__cause__ = error
+        except LLMUnavailableError as error:
+            logger.warning("OpenRouter model %s unusable: %s", model, error)
+            last_error = error
+    raise last_error
+
+
+def generate_text(
+    system: str,
+    user: str,
+    *,
+    budget_seconds: float,
+    gemini_share_seconds: float,
+    clock: Callable[[], float] = time.monotonic,
+) -> Completion:
+    """Return free text from the first provider that answers within the budget.
+
+    Order: Gemini first (the model chosen in Settings for writing), then the
+    OpenRouter free models. Each provider gets only what is left of the budget,
+    so a caller holding a synchronous request open never outlives its client.
+
+    Args:
+        budget_seconds: total wall clock for the whole fallback chain.
+        gemini_share_seconds: most of the budget Gemini may use, so a slow Gemini
+            still leaves room for OpenRouter.
+
+    Raises:
+        LLMNotConfiguredError: when no provider has an API key.
+        LLMUnavailableError: when every configured provider failed or ran out of time.
+    """
+    gemini_on = is_configured(GEMINI_API_KEY)
+    openrouter_on = is_configured(OPENROUTER_API_KEY)
+    if not (gemini_on or openrouter_on):
+        raise LLMNotConfiguredError(
+            "No AI provider configured. Add a Gemini or OpenRouter key in Settings."
+        )
+
+    deadline = clock() + budget_seconds
+    errors: list[str] = []
+    if gemini_on:
+        # Without a fallback, Gemini may use the whole budget.
+        share = gemini_share_seconds if openrouter_on else budget_seconds
+        try:
+            return _gemini_text(system, user, min(share, deadline - clock()))
+        except LLMUnavailableError as error:
+            logger.warning("Gemini failed to produce text: %s", error)
+            errors.append(f"Gemini: {error}")
+    if openrouter_on:
+        try:
+            return _openrouter_text(system, user, deadline, clock)
+        except LLMUnavailableError as error:
+            logger.warning("OpenRouter failed to produce text: %s", error)
+            errors.append(f"OpenRouter: {error}")
+    raise LLMUnavailableError("No AI provider could write the text (" + "; ".join(errors) + ").")

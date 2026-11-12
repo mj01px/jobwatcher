@@ -20,7 +20,6 @@ from pipeline.ats.service import analyze_and_save
 from pipeline.dates import local_today
 from pipeline.models import ACTIVE_STATUSES, CLOSED_STATUSES, Application, Interaction
 from pipeline.pitch.dossier import DossierEmptyError
-from pipeline.pitch.gemini import GeminiNotConfiguredError, GeminiUnavailableError
 from pipeline.pitch.service import generate_and_save
 from pipeline.resume_tailor import jobs as resume_jobs
 from pipeline.resume_tailor.jobs import ResumeBusyError
@@ -199,11 +198,11 @@ class JobPitchView(APIView):
             raise ApiError(
                 status.HTTP_422_UNPROCESSABLE_ENTITY, "DOSSIER_EMPTY", str(error)
             ) from error
-        except GeminiNotConfiguredError as error:
+        except LLMNotConfiguredError as error:
             raise ApiError(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "GEMINI_NOT_CONFIGURED", str(error)
+                status.HTTP_503_SERVICE_UNAVAILABLE, "AI_NOT_CONFIGURED", str(error)
             ) from error
-        except GeminiUnavailableError as error:
+        except LLMUnavailableError as error:
             raise ApiError(status.HTTP_502_BAD_GATEWAY, "AI_UNAVAILABLE", str(error)) from error
         finally:
             _pitch_lock.release()
@@ -291,9 +290,7 @@ class JobResumeView(APIView):
         try:
             token = resume_jobs.start(job, resume_text)
         except ResumeBusyError as error:
-            raise ApiError(
-                status.HTTP_409_CONFLICT, "RESUME_IN_PROGRESS", str(error)
-            ) from error
+            raise ApiError(status.HTTP_409_CONFLICT, "RESUME_IN_PROGRESS", str(error)) from error
         return envelope_response({"token": token}, status_code=status.HTTP_202_ACCEPTED)
 
 

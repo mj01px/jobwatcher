@@ -15,6 +15,7 @@ function errorKind(error: unknown): PitchErrorKind {
   switch (error.code) {
     case "DOSSIER_EMPTY":
       return "dossier";
+    case "AI_NOT_CONFIGURED":
     case "GEMINI_NOT_CONFIGURED":
       return "gemini";
     case "AI_UNAVAILABLE":

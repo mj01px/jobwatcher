@@ -58,10 +58,10 @@ def api_key() -> str:
     return key
 
 
-def build_client() -> httpx.Client:
+def build_client(timeout: float = TIMEOUT_SECONDS) -> httpx.Client:
     return httpx.Client(
         base_url=settings.OPENROUTER_BASE_URL,
-        timeout=httpx.Timeout(TIMEOUT_SECONDS, connect=10.0),
+        timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
         headers={
             "Authorization": f"Bearer {api_key()}",
             "HTTP-Referer": _REFERER,
@@ -126,10 +126,16 @@ def complete(
     response_format: dict[str, Any] | None = None,
     max_output_tokens: int = MAX_OUTPUT_TOKENS,
     temperature: float = DEFAULT_TEMPERATURE,
+    max_attempts: int = MAX_ATTEMPTS,
+    timeout: float = TIMEOUT_SECONDS,
     client: httpx.Client | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Completion:
     """Send one chat completion and return the text, retrying transient failures.
+
+    Args:
+        max_attempts: requests to make before giving up on transient failures.
+        timeout: per request timeout, used when no ``client`` is given.
 
     Raises:
         LLMNotConfiguredError: when no API key is configured (via ``build_client``).
@@ -151,10 +157,10 @@ def complete(
         payload["response_format"] = response_format
 
     own_client = client is None
-    http = client or build_client()
+    http = client or build_client(timeout)
     last_error = "unknown error"
     try:
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        for attempt in range(1, max_attempts + 1):
             response: httpx.Response | None = None
             try:
                 response = http.post("/chat/completions", json=payload)
@@ -171,10 +177,10 @@ def complete(
                     )
                 last_error = f"HTTP {response.status_code}"
                 logger.warning("OpenRouter %s (attempt %d)", last_error, attempt)
-            if attempt < MAX_ATTEMPTS:
+            if attempt < max_attempts:
                 sleep(_retry_delay(attempt, response))
         raise LLMUnavailableError(
-            f"OpenRouter did not answer after {MAX_ATTEMPTS} attempts ({last_error}). "
+            f"OpenRouter did not answer after {max_attempts} attempts ({last_error}). "
             "It may be the free-tier daily limit: wait and try again."
         )
     finally:

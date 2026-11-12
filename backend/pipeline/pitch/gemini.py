@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pipeline.ai.deadline import call_with_deadline
 from watcher.services.secrets import GEMINI_API_KEY, get_secret
 
 logger = logging.getLogger(__name__)
@@ -23,8 +24,13 @@ THINKING_LEVEL = "low"
 # the limit cuts the text mid sentence.
 MAX_OUTPUT_TOKENS = 4000
 # Without an explicit ceiling the call hangs forever when the API chokes or
-# rate limits. A normal generation takes 3 to 15 seconds.
+# rate limits. A cover letter takes 3 to 15 seconds; the tailored resume, which
+# runs in the background, much longer. Synchronous callers pass a shorter one.
 TIMEOUT_SECONDS = 90.0
+# The SDK retries 408/429/5xx on its own with backoff, which turned one 503 "high
+# demand" into a 93s wait. A busy Gemini should hand off to the next provider
+# right away instead.
+SDK_ATTEMPTS = 1
 
 
 class GeminiNotConfiguredError(RuntimeError):
@@ -53,13 +59,22 @@ def _client() -> Any:
         )
     try:
         from google import genai
+        from google.genai import types
     except ImportError as error:  # pragma: no cover - declared dependency
         raise GeminiUnavailableError("The google-genai package is not installed.") from error
-    return genai.Client(api_key=api_key)
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=SDK_ATTEMPTS)),
+    )
 
 
-def generate_text(instruction: str, prompt_input: str, model: str) -> GeneratedText:
+def generate_text(
+    instruction: str, prompt_input: str, model: str, *, timeout: float = TIMEOUT_SECONDS
+) -> GeneratedText:
     """Send the instruction and input, return the text and its token cost.
+
+    Args:
+        timeout: wall clock ceiling for the whole call, in seconds.
 
     Raises:
         GeminiNotConfiguredError: when no API key is configured.
@@ -67,21 +82,24 @@ def generate_text(instruction: str, prompt_input: str, model: str) -> GeneratedT
     """
     client = _client()
     try:
-        response = client.interactions.create(
-            model=model,
-            system_instruction=instruction,
-            input=prompt_input,
-            generation_config={
-                "thinking_level": THINKING_LEVEL,
-                "max_output_tokens": MAX_OUTPUT_TOKENS,
-            },
-            timeout=TIMEOUT_SECONDS,
+        response = call_with_deadline(
+            lambda: client.interactions.create(
+                model=model,
+                system_instruction=instruction,
+                input=prompt_input,
+                generation_config={
+                    "thinking_level": THINKING_LEVEL,
+                    "max_output_tokens": MAX_OUTPUT_TOKENS,
+                },
+                timeout=timeout,
+            ),
+            timeout,
         )
     except Exception as error:
         logger.warning("Gemini call failed (model %s): %s", model, type(error).__name__)
         if "timeout" in type(error).__name__.lower() or isinstance(error, TimeoutError):
             raise GeminiUnavailableError(
-                f"Gemini did not answer within {TIMEOUT_SECONDS:.0f}s. It may be the free "
+                f"Gemini did not answer within {timeout:.0f}s. It may be the free "
                 "tier limit: wait a minute and try again."
             ) from error
         raise GeminiUnavailableError(f"Gemini did not answer: {error}") from error
