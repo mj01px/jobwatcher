@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClie
 import { useEffect, useRef } from "react";
 
 import { moveInBoard, todayIso } from "../lib/board";
+import { getDesktopBridge } from "../lib/desktopBridge";
 import { startVisitPings, visitJustStarted } from "../lib/visits";
 import { api } from "./client";
 import type {
@@ -372,7 +373,13 @@ export function useGenerateAts(jobId: number) {
 export function useGenerateResume(jobId: number) {
   return useMutation({
     mutationFn: (resume: File) => api.generateResume(jobId, resume),
-    onSuccess: ({ blob, filename }) => {
+    onSuccess: async ({ blob, filename }) => {
+      // The desktop webview cannot download a blob: hand it to the native dialog.
+      const saveFile = getDesktopBridge()?.saveFile;
+      if (saveFile) {
+        await saveFile(filename, blob);
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;

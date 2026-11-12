@@ -7,8 +7,8 @@ through that window's bridge. A report only counts when the id is the job that
 window shows, and then the job moves into the applications funnel.
 
 pywebview exposes every public attribute of a ``js_api`` object to the page, so
-the bridge classes keep their state in underscore attributes and offer exactly
-one public method each.
+the bridge classes keep their state in underscore attributes and offer only the
+methods the page needs.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import downloads
 import webview
 
 logger = logging.getLogger("watcher.desktop")
@@ -49,13 +50,16 @@ def _is_inhire_url(url: str) -> bool:
 
 
 class MainWindowApi:
-    """``js_api`` of the main window: only ``open_job``."""
+    """``js_api`` of the main window: ``open_job`` and ``save_file``."""
 
     def __init__(self, detector: ApplyDetector) -> None:
         self._detector = detector
 
     def open_job(self, job_id: Any) -> dict[str, Any]:
         return self._detector._open_job(job_id)
+
+    def save_file(self, filename: Any, data_base64: Any) -> dict[str, Any]:
+        return downloads.save_file(self._detector._main_window, filename, data_base64)
 
 
 class JobWindowApi:
